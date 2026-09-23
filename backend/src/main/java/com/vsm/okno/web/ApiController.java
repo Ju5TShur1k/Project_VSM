@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+// Routes map 1:1 to contracts/openapi.yaml paths; add there first if the
+// contract changes, this controller just wires it to PlanningService.
 @RestController
 @RequestMapping("/api/v1")
 public class ApiController {

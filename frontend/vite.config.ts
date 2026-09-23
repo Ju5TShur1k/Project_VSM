@@ -7,7 +7,9 @@ export default defineConfig({
     host: true,
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8080'
+      // ponytail: API_PROXY_TARGET lets docker-compose point this at the "api"
+      // service by name; local `npm run dev` keeps the localhost default.
+      '/api': process.env.API_PROXY_TARGET || 'http://localhost:8080'
     }
   }
 })

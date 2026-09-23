@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.util.List;
 import java.util.UUID;
 
+// Every error body follows {code,message,traceId,details} per the ТЗ's error
+// contract — extend here, not with ad-hoc error shapes in individual endpoints.
 @RestControllerAdvice
 public class ApiExceptionHandler {
 

@@ -1,1 +1,32 @@
-Hello
+# ОКНО ВСМ
+
+Планирование обслуживания парка ЭВС360 (кейс №6, АО «СВС»). Контекст и ТЗ — в материалах команды.
+
+## Запуск
+
+```bash
+docker compose up --build
+```
+
+- API: http://localhost:8080 (health: `/actuator/health`)
+- UI: http://localhost:5173
+
+Без Docker:
+
+```bash
+cd backend && ./mvnw -B package -DskipTests && java -jar target/okno-api-0.0.1-SNAPSHOT.jar
+cd frontend && npm install && npm run dev
+```
+
+## Структура
+
+- `backend/` — Spring Boot 4 API (Java 21, сгенерирован через [Spring Initializr](https://start.spring.io)), пакет `com.vsm.okno`. Контракт: `contracts/openapi.yaml`. Есть Maven wrapper (`./mvnw`), системный Maven не обязателен.
+- `frontend/` — React + Vite, экран «Парк».
+- `contracts/` — OpenAPI-спецификация, источник правды для DTO.
+- `docker-compose.yml` — postgres + api + web.
+
+## Статус
+
+Backend сейчас работает на мок-данных (`PlanningService`, in-memory `Store`) —
+job-сервис мгновенно возвращает пустой план вместо реального CP-SAT-расчёта.
+Реальный Planner и подключение PostgreSQL — отдельные задачи (см. распределение ролей команды).

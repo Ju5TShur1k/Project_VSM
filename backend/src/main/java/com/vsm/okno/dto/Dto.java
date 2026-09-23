@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+// Hand-written to match contracts/openapi.yaml — that file is the source of
+// truth, keep both in sync manually when the contract changes.
 public final class Dto {
     private Dto() {}
 
@@ -30,6 +32,9 @@ public final class Dto {
             String idempotencyKey
     ) {}
 
+    // status is the job's lifecycle (QUEUED/RUNNING/SUCCEEDED/...), solverStatus
+    // is the CP-SAT outcome (FEASIBLE/INFEASIBLE/...) — SUCCEEDED never implies
+    // a usable plan, the two are independent per the spec.
     public record JobStatus(UUID jobId, String status, String solverStatus, UUID planId) {}
 
     public record PlanEvent(
