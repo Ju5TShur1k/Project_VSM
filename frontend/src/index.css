@@ -83,3 +83,34 @@ tbody tr:hover { background: color-mix(in srgb, var(--line) 35%, transparent); }
   background: color-mix(in srgb, var(--ok) 14%, transparent);
 }
 .badge.HOT_RESERVE { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+
+.narrow { max-width: 380px; }
+.bar { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.form { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+.form button { margin: 4px 0 0; }
+label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+input, select {
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.link { margin: 0; padding: 0; background: none; color: var(--accent); font-weight: 400; }
+
+h2 { margin: 0 0 16px; font-size: 15px; font-weight: 600; }
+h3 { margin: 20px 0 8px; font-size: 13px; font-weight: 500; color: var(--muted); }
+.pad { padding: 20px; }
+.pad button { margin: 0; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.row input { flex: 1; min-width: 200px; }
+button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+a { color: var(--accent); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 24px; margin: 20px 0 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; }
+.viol { margin: 0 0 16px; padding-left: 18px; }
+.badge.DRAFT { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.badge.CRITICAL, .badge.INFEASIBLE, .badge.UNKNOWN, .badge.MODEL_INVALID { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }

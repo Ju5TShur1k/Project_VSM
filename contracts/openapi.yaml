@@ -4,7 +4,56 @@ info:
   version: "0.1.0"
 servers:
   - url: /api/v1
+# Everything except /actuator/health requires a session (cookie JSESSIONID from
+# /auth/login). State-changing requests must also send the X-XSRF-TOKEN header
+# with the value of the XSRF-TOKEN cookie (set on the first response, even a 401).
+# Unauthenticated calls get 401 with the standard ApiError body.
 paths:
+  /auth/login:
+    post:
+      summary: Log in (form-encoded username + password), starts a session
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        '200': { description: Logged in }
+        '401':
+          description: Bad credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /auth/logout:
+    post:
+      summary: End the session
+      responses:
+        '200': { description: Logged out }
+
+  /auth/me:
+    get:
+      summary: Current user (also used to obtain the XSRF-TOKEN cookie)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+        '401':
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   /scenarios/import:
     post:
       summary: Import scenario
@@ -220,6 +269,7 @@ components:
         scenarioId: { type: string, format: uuid }
         version: { type: integer }
         status: { type: string, enum: [DRAFT, APPROVED] }
+        approvedBy: { type: string, nullable: true, description: "Authenticated user who approved; the request's actorId is ignored" }
         events: { type: array, items: { $ref: '#/components/schemas/PlanEvent' } }
         validations: { type: array, items: { $ref: '#/components/schemas/Validation' } }
     ApiError:

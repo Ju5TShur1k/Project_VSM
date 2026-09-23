@@ -81,11 +81,12 @@ public class PlanningService {
         return toPlanDto(require(store.plans, id, "plan"));
     }
 
-    public Dto.Plan approve(UUID planId, Dto.ApproveRequest req) {
+    public Dto.Plan approve(UUID planId, Dto.ApproveRequest req, String actor) {
         Store.Plan plan = require(store.plans, planId, "plan");
         if (plan.version != req.expectedVersion()) {
             throw new VersionConflictException(plan.version);
         }
+        plan.approvedBy = actor;
         plan.status = "APPROVED";
         plan.version += 1;
         return toPlanDto(plan);
@@ -128,7 +129,7 @@ public class PlanningService {
     }
 
     private Dto.Plan toPlanDto(Store.Plan plan) {
-        return new Dto.Plan(plan.id, plan.scenarioId, plan.version, plan.status, plan.events, plan.validations);
+        return new Dto.Plan(plan.id, plan.scenarioId, plan.version, plan.status, plan.events, plan.validations, plan.approvedBy);
     }
 
     private static List<Dto.Train> syntheticFleet(int count) {

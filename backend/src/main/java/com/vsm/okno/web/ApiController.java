@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -60,8 +61,13 @@ public class ApiController {
     }
 
     @PostMapping("/plans/{id}/approve")
-    public Dto.Plan approve(@PathVariable UUID id, @RequestBody Dto.ApproveRequest request) {
-        return service.approve(id, request);
+    public Dto.Plan approve(@PathVariable UUID id, @RequestBody Dto.ApproveRequest request, Principal principal) {
+        return service.approve(id, request, principal.getName());
+    }
+
+    @GetMapping("/auth/me")
+    public Map<String, String> me(Principal principal) {
+        return Map.of("username", principal.getName());
     }
 
     @GetMapping(value = "/plans/{id}/export", produces = "text/csv")

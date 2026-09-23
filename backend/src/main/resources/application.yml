@@ -1,5 +1,16 @@
 server:
   port: 8080
+  servlet:
+    session:
+      cookie:
+        same-site: lax
+        # secure: true   # enable once served over HTTPS
+okno:
+  auth:
+    # Demo accounts. Override via env; don't reuse these anywhere real.
+    users:
+      planner: ${OKNO_PLANNER_PASSWORD:planner-demo}
+      technologist: ${OKNO_TECH_PASSWORD:tech-demo}
 management:
   endpoints:
     web:

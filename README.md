@@ -18,6 +18,12 @@ cd backend && ./mvnw -B package -DskipTests && java -jar target/okno-api-0.0.1-S
 cd frontend && npm install && npm run dev
 ```
 
+## Вход
+
+API закрыто сессией (cookie) + CSRF (заголовок `X-XSRF-TOKEN` = значение cookie `XSRF-TOKEN`). Демо-аккаунты из `backend/src/main/resources/application.yml`:
+`planner` / `planner-demo`, `technologist` / `tech-demo`. Пароли переопределяются переменными `OKNO_PLANNER_PASSWORD`, `OKNO_TECH_PASSWORD`.
+Согласующий в плане (`approvedBy`) берётся из сессии, а не из тела запроса.
+
 ## Структура
 
 - `backend/` — Spring Boot 4 API (Java 21, сгенерирован через [Spring Initializr](https://start.spring.io)), пакет `com.vsm.okno`. Контракт: `contracts/openapi.yaml`. Есть Maven wrapper (`./mvnw`), системный Maven не обязателен.

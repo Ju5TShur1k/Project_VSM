@@ -7,23 +7,35 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // Self-check for the mock planning flow: import -> job -> plan -> approve,
 // plus the two rules the acceptance tests (T11/T12) care about: idempotent
-// job creation and optimistic-locked approval.
+// job creation and optimistic-locked approval. Runs as a logged-in user.
+// DirtiesContext: csrf() patches the CSRF repository inside the cached context.
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser("tester")
+@DirtiesContext
 class FlowSmokeTest {
 
     @Autowired
     MockMvc mvc;
+
+    // Every POST needs the CSRF token now that the API is behind a session.
+    static MockHttpServletRequestBuilder post(String url) {
+        return MockMvcRequestBuilders.post(url).with(csrf());
+    }
 
     final ObjectMapper json = new ObjectMapper();
 
@@ -65,7 +77,9 @@ class FlowSmokeTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedVersion\":0,\"actorId\":\"tester\",\"comment\":\"ok\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("APPROVED"));
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                // approver comes from the session, not from the request's actorId
+                .andExpect(jsonPath("$.approvedBy").value("tester"));
 
         mvc.perform(post("/api/v1/plans/" + planId + "/approve")
                         .contentType(MediaType.APPLICATION_JSON)

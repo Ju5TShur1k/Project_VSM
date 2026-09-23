@@ -37,6 +37,7 @@ public class Store {
         public UUID scenarioId;
         public int version;
         public String status;
+        public String approvedBy;
         public List<Dto.PlanEvent> events;
         public List<Dto.Validation> validations;
     }

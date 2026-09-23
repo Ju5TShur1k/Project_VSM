@@ -45,9 +45,11 @@ public final class Dto {
 
     public record Plan(
             UUID id, UUID scenarioId, int version, String status,
-            List<PlanEvent> events, List<Validation> validations
+            List<PlanEvent> events, List<Validation> validations, String approvedBy
     ) {}
 
+    // actorId is ignored server-side: the approver is the authenticated user
+    // (Plan.approvedBy). Kept only so existing clients don't break.
     public record ApproveRequest(int expectedVersion, String actorId, String comment) {}
 
     public record ScenarioEvent(String kind, String description) {}
