@@ -17,43 +17,52 @@ export default function App() {
   })
 
   return (
-    <div style={{ fontFamily: 'sans-serif', padding: 24 }}>
-      <h1>ОКНО ВСМ — Парк</h1>
+    <main>
+      <h1>
+        ОКНО ВСМ <span>/ Парк</span>
+      </h1>
 
-      {!scenarioId && (
+      {scenarioId ? (
+        <p className="muted">
+          Сценарий <code>{scenarioId}</code>
+        </p>
+      ) : (
         <button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
           {importMutation.isPending ? 'Импорт…' : 'Импортировать демо-сценарий (43 поезда)'}
         </button>
       )}
 
-      {scenarioId && <p>Сценарий: {scenarioId}</p>}
-
-      {trainsQuery.isLoading && <p>Загрузка парка…</p>}
-      {trainsQuery.isError && <p>Ошибка: {(trainsQuery.error as Error).message}</p>}
-      {trainsQuery.data && trainsQuery.data.length === 0 && <p>Парк пуст.</p>}
+      {importMutation.isError && <p className="error">Ошибка: {(importMutation.error as Error).message}</p>}
+      {trainsQuery.isLoading && <p className="muted">Загрузка парка…</p>}
+      {trainsQuery.isError && <p className="error">Ошибка: {(trainsQuery.error as Error).message}</p>}
+      {trainsQuery.data && trainsQuery.data.length === 0 && <p className="muted">Парк пуст.</p>}
 
       {trainsQuery.data && trainsQuery.data.length > 0 && (
-        <table border={1} cellPadding={6}>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Статус</th>
-              <th>Пробег, км</th>
-              <th>Ближайшее обязательство</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trainsQuery.data.map((t) => (
-              <tr key={t.id}>
-                <td>{t.externalId}</td>
-                <td>{t.status}</td>
-                <td>{t.mileageKm}</td>
-                <td>{t.nextObligation}</td>
+        <div className="card">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Статус</th>
+                <th className="num">Пробег, км</th>
+                <th>Ближайшее обязательство</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {trainsQuery.data.map((t) => (
+                <tr key={t.id}>
+                  <td>{t.externalId}</td>
+                  <td>
+                    <span className={`badge ${t.status}`}>{t.status}</span>
+                  </td>
+                  <td className="num">{t.mileageKm}</td>
+                  <td>{t.nextObligation}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </div>
+    </main>
   )
 }
