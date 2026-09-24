@@ -4,6 +4,7 @@ import com.google.ortools.Loader;
 import com.google.ortools.sat.CpModel;
 import com.google.ortools.sat.CpSolver;
 import com.google.ortools.sat.CpSolverStatus;
+import com.google.ortools.sat.Literal;
 import com.google.ortools.sat.IntVar;
 import com.google.ortools.sat.IntervalVar;
 import com.google.ortools.sat.LinearExpr;
@@ -16,16 +17,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** E1/E2 CP-SAT model: indivisible work, fixed trips, exclusive resources, windows and precedences. */
+/** CP-SAT placement of indivisible work under the prepared snapshot's hard constraints. */
 public final class CpSatPlanner implements Planner {
     private record Variables(IntVar start, IntVar end, IntervalVar interval) {}
 
     @Override
     public PlannerResult plan(ScenarioSnapshot snapshot, PlannerRequest request) {
-        if (!snapshot.scenarioId().equals(request.scenarioId())
-                || !snapshot.snapshotHash().equals(request.snapshotHash())) {
-            throw new IllegalArgumentException("request does not match snapshot id/hash");
-        }
+        request.validateAgainst(snapshot);
         if (request.policy() != PlannerRequest.Policy.BLOCKS_CP_SAT
                 && request.policy() != PlannerRequest.Policy.WHOLE_CYCLE_CP_SAT) {
             throw new IllegalArgumentException("unsupported planner policy");
@@ -39,6 +37,10 @@ public final class CpSatPlanner implements Planner {
         Map<UUID, List<IntervalVar>> byTrain = new HashMap<>();
         Map<String, List<IntervalVar>> byResource = new HashMap<>();
         List<IntVar> ends = new ArrayList<>();
+        Map<UUID, Integer> frozenStarts = new HashMap<>();
+        for (OperationalConstraints.FrozenPlacement frozen : snapshot.operations().frozenPlacements()) {
+            frozenStarts.put(frozen.blockId(), frozen.startMinute());
+        }
 
         for (ScenarioSnapshot.ServiceBlock block : snapshot.blocks()) {
             String suffix = block.id().toString();
@@ -52,6 +54,29 @@ public final class CpSatPlanner implements Planner {
             byTrain.computeIfAbsent(block.trainId(), ignored -> new ArrayList<>()).add(interval);
             byResource.computeIfAbsent(block.resourceId(), ignored -> new ArrayList<>()).add(interval);
             ends.add(end);
+
+            Integer frozenStart = frozenStarts.get(block.id());
+            if (frozenStart != null) {
+                model.addEquality(start, frozenStart);
+            } else if (request.frozenUntilMinute() > 0) {
+                model.addGreaterOrEqual(start, request.frozenUntilMinute());
+            }
+            if ("1.2".equals(snapshot.schemaVersion())) {
+                List<Literal> choices = new ArrayList<>();
+                for (OperationalConstraints.ServiceWindow window : snapshot.operations().serviceWindows()) {
+                    if (!window.trainId().equals(block.trainId())
+                            || !window.resourceId().equals(block.resourceId())) continue;
+                    Literal choice = model.newBoolVar("window_" + suffix + "_" + choices.size());
+                    choices.add(choice);
+                    model.addGreaterOrEqual(start, window.startMinute()).onlyEnforceIf(choice);
+                    model.addLessOrEqual(end, window.endMinute()).onlyEnforceIf(choice);
+                }
+                if (choices.isEmpty()) {
+                    model.addEquality(model.newConstant(0), 1);
+                } else {
+                    model.addExactlyOne(choices);
+                }
+            }
         }
 
         for (ScenarioSnapshot.FixedTrip trip : snapshot.fixedTrips()) {
@@ -59,6 +84,17 @@ public final class CpSatPlanner implements Planner {
                     LinearExpr.constant(trip.endMinute() - trip.startMinute()),
                     model.newConstant(trip.endMinute()), "trip_" + trip.id());
             byTrain.computeIfAbsent(trip.trainId(), ignored -> new ArrayList<>()).add(occupied);
+        }
+        for (OperationalConstraints.FixedOccupancy occupancy : snapshot.operations().fixedOccupancies()) {
+            IntervalVar occupied = model.newIntervalVar(model.newConstant(occupancy.startMinute()),
+                    LinearExpr.constant(occupancy.endMinute() - occupancy.startMinute()),
+                    model.newConstant(occupancy.endMinute()), "occupancy_" + occupancy.id());
+            if (occupancy.trainId() != null) {
+                byTrain.computeIfAbsent(occupancy.trainId(), ignored -> new ArrayList<>()).add(occupied);
+            }
+            if (occupancy.resourceId() != null) {
+                byResource.computeIfAbsent(occupancy.resourceId(), ignored -> new ArrayList<>()).add(occupied);
+            }
         }
 
         byTrain.values().forEach(model::addNoOverlap);
@@ -71,7 +107,11 @@ public final class CpSatPlanner implements Planner {
 
         // A transparent toy objective: the earliest completion of all required work.
         IntVar makespan = model.newIntVar(0, snapshot.horizonMinutes(), "makespan");
-        model.addMaxEquality(makespan, ends);
+        if (ends.isEmpty()) {
+            model.addEquality(makespan, 0);
+        } else {
+            model.addMaxEquality(makespan, ends);
+        }
         model.minimize(makespan);
 
         CpSolver solver = new CpSolver();
@@ -96,9 +136,9 @@ public final class CpSatPlanner implements Planner {
             objectiveMinutes = solver.objectiveValue();
         } else {
             String message = switch (status) {
-                case INFEASIBLE -> "The E1 model proved that no placement satisfies all stated windows and exclusive resources.";
+                case INFEASIBLE -> "The model proved that no placement satisfies the prepared hard constraints.";
                 case UNKNOWN -> "No feasible result was established before the solver stopped.";
-                case MODEL_INVALID -> "CP-SAT rejected the E1 model; inspect model construction and solver logs.";
+                case MODEL_INVALID -> "CP-SAT rejected the model; inspect model construction and solver logs.";
                 default -> throw new IllegalStateException("unexpected solver status");
             };
             diagnostics.add(new PlannerResult.Diagnostic("SOLVER_" + status, message));
