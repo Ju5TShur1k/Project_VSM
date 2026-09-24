@@ -114,3 +114,6 @@ a { color: var(--accent); }
 .viol { margin: 0 0 16px; padding-left: 18px; }
 .badge.DRAFT { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
 .badge.CRITICAL, .badge.INFEASIBLE, .badge.UNKNOWN, .badge.MODEL_INVALID { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
+details { margin-top: 16px; }
+summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details table { margin-top: 8px; }

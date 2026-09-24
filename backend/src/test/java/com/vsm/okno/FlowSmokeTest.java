@@ -1,89 +1,77 @@
 package com.vsm.okno;
 
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import tools.jackson.databind.JsonNode;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// Self-check for the mock planning flow: import -> job -> plan -> approve,
-// plus the two rules the acceptance tests (T11/T12) care about: idempotent
-// job creation and optimistic-locked approval. Runs as a logged-in user.
+// End-to-end through the real CP-SAT planner: import -> async job -> plan -> approve,
+// plus T11/T12 (idempotent jobs, optimistic-locked approval). A stand-in validator
+// that reports no violations plays D2, so the approval path is reachable.
+// Needs the OR-Tools natives: see the JDK note in README.
 // DirtiesContext: csrf() patches the CSRF repository inside the cached context.
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser("tester")
 @DirtiesContext
+@Import(FlowSmokeTest.CleanValidator.class)
 class FlowSmokeTest {
+
+    @TestConfiguration
+    static class CleanValidator {
+        @Bean
+        com.vsm.okno.service.PlanValidator planValidator() {
+            return (snapshot, result) -> List.of();
+        }
+    }
 
     @Autowired
     MockMvc mvc;
 
-    // Every POST needs the CSRF token now that the API is behind a session.
-    static MockHttpServletRequestBuilder post(String url) {
-        return MockMvcRequestBuilders.post(url).with(csrf());
-    }
-
-    final ObjectMapper json = new ObjectMapper();
-
     @Test
     void importJobPlanApproveFlow() throws Exception {
-        String importBody = mvc.perform(post("/api/v1/scenarios/import")
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        String scenarioId = json.readTree(importBody).get("scenarioId").asText();
+        PlannerApi api = new PlannerApi(mvc);
+        String scenarioId = api.importScenario();
 
         mvc.perform(get("/api/v1/scenarios/" + scenarioId + "/trains"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(43));
 
-        String jobBody = String.format(
-                "{\"scenarioId\":\"%s\",\"policy\":\"BLOCKS_CP_SAT\",\"seed\":1,\"timeLimitSec\":5,\"idempotencyKey\":\"key-1\"}",
-                scenarioId);
-        String jobResp = mvc.perform(post("/api/v1/planning-jobs")
-                        .contentType(MediaType.APPLICATION_JSON).content(jobBody))
-                .andExpect(status().isAccepted())
-                .andReturn().getResponse().getContentAsString();
-        JsonNode job = json.readTree(jobResp);
-        String jobId = job.get("jobId").asText();
-        String planId = job.get("planId").asText();
+        JsonNode job = api.runJob(scenarioId, "key-1");
         assertEquals("SUCCEEDED", job.get("status").asText());
+        assertTrue(List.of("OPTIMAL", "FEASIBLE").contains(job.get("solverStatus").asText()), job.toString());
+        String planId = job.get("planId").asText();
 
-        String jobResp2 = mvc.perform(post("/api/v1/planning-jobs")
-                        .contentType(MediaType.APPLICATION_JSON).content(jobBody))
-                .andExpect(status().isAccepted())
-                .andReturn().getResponse().getContentAsString();
-        assertEquals(jobId, json.readTree(jobResp2).get("jobId").asText());
+        // Retrying the same idempotency key returns the same job, not a second run.
+        JsonNode replay = api.postJson("/api/v1/planning-jobs", PlannerApi.jobBody(scenarioId, "key-1"), 202);
+        assertEquals(job.get("jobId").asText(), replay.get("jobId").asText());
 
-        mvc.perform(get("/api/v1/plans/" + planId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("DRAFT"));
+        // 43 trains - 4 in hot reserve = 39 working trains, one IS100 block each.
+        JsonNode plan = api.plan(job);
+        assertEquals("DRAFT", plan.get("status").asText());
+        assertEquals(39, plan.get("events").size());
 
-        mvc.perform(post("/api/v1/plans/" + planId + "/approve")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":0,\"actorId\":\"tester\",\"comment\":\"ok\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("APPROVED"))
-                // approver comes from the session, not from the request's actorId
-                .andExpect(jsonPath("$.approvedBy").value("tester"));
+        api.postJson("/api/v1/plans/" + planId + "/approve",
+                "{\"expectedVersion\":0,\"actorId\":\"someone-else\",\"comment\":\"ok\"}", 200);
+        // approver comes from the session, not from the request's actorId
+        assertEquals("tester", api.getJson("/api/v1/plans/" + planId).get("approvedBy").asText());
 
-        mvc.perform(post("/api/v1/plans/" + planId + "/approve")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":0,\"actorId\":\"tester\",\"comment\":\"stale\"}"))
-                .andExpect(status().isConflict());
+        api.postJson("/api/v1/plans/" + planId + "/approve",
+                "{\"expectedVersion\":0,\"comment\":\"stale\"}", 409);
     }
 }

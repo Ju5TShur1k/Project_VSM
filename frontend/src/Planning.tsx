@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Conflict, Plan } from './api'
+import { api, Conflict, Plan, Train } from './api'
 
 const FAILURES = [
   ['MACHINE_DOWN', 'Станок недоступен на 12 часов'],
@@ -11,9 +11,8 @@ const FAILURES = [
 // INFEASIBLE / MODEL_INVALID never do).
 const APPROVABLE = ['OPTIMAL', 'FEASIBLE']
 
-// Why the approve button is off, or null if the plan can be approved.
-// ponytail: UI-only guard — the API itself does not refuse approval yet; add a
-// server-side check (422) when the real validator produces CRITICAL violations.
+// Why the approve button is off, or null if the plan can be approved. Mirrors the
+// server, which independently answers 422 for a plan with CRITICAL violations.
 function blocker(plan: Plan, solver: string): string | null {
   if (plan.status === 'APPROVED') return `Уже согласован пользователем ${plan.approvedBy}`
   if (!APPROVABLE.includes(solver)) return `Расчёт не дал допустимого плана (${solver || 'нет статуса'})`
@@ -21,13 +20,24 @@ function blocker(plan: Plan, solver: string): string | null {
   return null
 }
 
+const fmt = (iso: string) =>
+  new Date(iso).toLocaleString('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+
 // Keyed by scenarioId in the parent: injecting a failure creates a new scenario
 // version, which remounts this and drops the now-outdated plan.
 export default function Planning({
   scenarioId,
+  trains,
   onScenarioChange
 }: {
   scenarioId: string
+  trains: Train[] | undefined
   onScenarioChange: (id: string) => void
 }) {
   const qc = useQueryClient()
@@ -43,11 +53,14 @@ export default function Planning({
   const start = useMutation({ mutationFn: () => api.startJob(scenarioId), onSuccess: (j) => setJobId(j.jobId) })
 
   // The contract is async (QUEUED/RUNNING -> terminal); poll until it settles.
+  // Also in a background tab: otherwise a user who switches away mid-solve
+  // comes back to a job that looks stuck.
   const job = useQuery({
     queryKey: ['job', jobId],
     queryFn: () => api.getJob(jobId!),
     enabled: !!jobId,
-    refetchInterval: (q) => (['QUEUED', 'RUNNING'].includes(q.state.data?.status ?? '') ? 1000 : false)
+    refetchInterval: (q) => (['QUEUED', 'RUNNING'].includes(q.state.data?.status ?? '') ? 1000 : false),
+    refetchIntervalInBackground: true
   })
   const running = start.isPending || ['QUEUED', 'RUNNING'].includes(job.data?.status ?? '')
 
@@ -63,6 +76,7 @@ export default function Planning({
   })
 
   const p = plan.data
+  const trainName = new Map(trains?.map((t) => [t.id, t.externalId]))
   const solver = job.data?.solverStatus ?? ''
   const blocked = p ? blocker(p, solver) : null
   const error = [fail, start, job, plan, approve].find((q) => q.isError)?.error
@@ -94,7 +108,10 @@ export default function Planning({
         </p>
       )}
       {['FAILED', 'CANCELLED'].includes(job.data?.status ?? '') && (
-        <p className="error">Расчёт завершился со статусом {job.data?.status}</p>
+        <p className="error">
+          Расчёт завершился со статусом {job.data?.status}
+          {job.data?.error && `: ${job.data.error}`}
+        </p>
       )}
 
       {p && (
@@ -119,6 +136,32 @@ export default function Planning({
               </>
             )}
           </dl>
+
+          {p.events.length > 0 && (
+            <details>
+              <summary>Работы в плане ({p.events.length})</summary>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Поезд</th>
+                    <th>Путь</th>
+                    <th>Начало</th>
+                    <th>Конец</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {p.events.map((e) => (
+                    <tr key={e.id}>
+                      <td>{trainName.get(e.trainId) ?? e.trainId}</td>
+                      <td>{e.resourceIds.join(', ')}</td>
+                      <td>{fmt(e.startAt)}</td>
+                      <td>{fmt(e.endAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
 
           <h3>Нарушения</h3>
           {p.validations.length === 0 ? (

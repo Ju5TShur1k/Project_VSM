@@ -126,7 +126,7 @@ paths:
             schema:
               type: object
               properties:
-                kind: { type: string }
+                kind: { type: string, enum: [MACHINE_DOWN, UNPLANNED_INSPECTION] }
                 description: { type: string }
       responses:
         '201':
@@ -137,6 +137,11 @@ paths:
                 type: object
                 properties:
                   newScenarioId: { type: string, format: uuid }
+        '422':
+          description: Unknown failure kind
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
 
   /planning-jobs:
     post:
@@ -146,12 +151,21 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/JobRequest' }
+      description: >
+        Queues the job and returns immediately (status QUEUED); the solver runs on
+        a worker thread. Poll GET /planning-jobs/{id} until status is terminal.
+        A repeated idempotencyKey returns the existing job.
       responses:
         '202':
           description: Accepted
           content:
             application/json:
               schema: { $ref: '#/components/schemas/JobStatus' }
+        '422':
+          description: Invalid policy / timeLimitSec (1..300) / seed / frozenUntil
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
 
   /planning-jobs/{id}:
     get:
@@ -197,6 +211,13 @@ paths:
               schema: { $ref: '#/components/schemas/Plan' }
         '409':
           description: Version conflict
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: >
+            PLAN_NOT_APPROVABLE - the plan carries a CRITICAL validation (no
+            admissible plan, or the independent validation has not passed).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
@@ -247,6 +268,7 @@ components:
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED] }
         solverStatus: { type: string, enum: [OPTIMAL, FEASIBLE, INFEASIBLE, UNKNOWN, MODEL_INVALID] }
         planId: { type: string, format: uuid, nullable: true }
+        error: { type: string, nullable: true, description: "Only when status is FAILED" }
     PlanEvent:
       type: object
       properties:
