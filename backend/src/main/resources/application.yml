@@ -17,5 +17,9 @@ management:
       exposure:
         include: health
 spring:
+  # Keep F1's existing in-memory demo/test flow. Opt in with profile "database".
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
   application:
     name: okno-vsm-api

@@ -4,6 +4,9 @@
 
 ## Запуск
 
+Профиль PostgreSQL/Flyway, схема D1, синтетические данные и инструкции команде: [database/README.md](database/README.md).
+Для БД на порту 5433: `docker compose -f docker-compose.yml -f docker-compose.database.yml up -d --build`.
+
 ```bash
 docker compose up --build
 ```
@@ -35,4 +38,5 @@ API закрыто сессией (cookie) + CSRF (заголовок `X-XSRF-TO
 
 Backend сейчас работает на мок-данных (`PlanningService`, in-memory `Store`) —
 job-сервис мгновенно возвращает пустой план вместо реального CP-SAT-расчёта.
-Реальный Planner и подключение PostgreSQL — отдельные задачи (см. распределение ролей команды).
+Самостоятельный CP-SAT Planner находится в `backend/.../planning`; профиль `database` создаёт схему PostgreSQL и включает репозиторий исходных снимков D1.
+Связывание HTTP API, snapshot, асинхронного job, Planner и проверки D2 ещё не выполнено.

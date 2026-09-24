@@ -1,0 +1,20 @@
+# Use with: docker compose -f docker-compose.yml -f docker-compose.database.yml up -d --build
+# Reset the existing port list so the local PostgreSQL on 5432 remains usable.
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U okno -d okno"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    environment:
+      SPRING_PROFILES_ACTIVE: database
+      DB_URL: jdbc:postgresql://postgres:5432/okno
+      DB_USER: okno
+      DB_PASSWORD: okno
+    depends_on:
+      postgres:
+        condition: service_healthy
