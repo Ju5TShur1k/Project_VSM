@@ -61,7 +61,7 @@ public final class CpSatPlanner implements Planner {
             } else if (request.frozenUntilMinute() > 0) {
                 model.addGreaterOrEqual(start, request.frozenUntilMinute());
             }
-            if ("1.2".equals(snapshot.schemaVersion())) {
+            if ("1.2".equals(snapshot.schemaVersion()) || "1.3".equals(snapshot.schemaVersion())) {
                 List<Literal> choices = new ArrayList<>();
                 for (OperationalConstraints.ServiceWindow window : snapshot.operations().serviceWindows()) {
                     if (!window.trainId().equals(block.trainId())
@@ -102,6 +102,21 @@ public final class CpSatPlanner implements Planner {
         for (ScenarioSnapshot.ServiceBlock block : snapshot.blocks()) {
             for (UUID predecessorId : block.predecessorIds()) {
                 model.addGreaterOrEqual(byBlock.get(block.id()).start(), byBlock.get(predecessorId).end());
+            }
+        }
+        for (OperationalConstraints.ReleaseRequirement requirement : snapshot.operations().releaseRequirements()) {
+            ScenarioSnapshot.ServiceBlock maintenance = snapshot.blocks().stream()
+                    .filter(block -> block.id().equals(requirement.maintenanceBlockId())).findFirst().orElseThrow();
+            Variables work = byBlock.get(requirement.maintenanceBlockId());
+            Variables check = byBlock.get(requirement.checkBlockId());
+            model.addGreaterOrEqual(check.start(), work.end());
+            for (ScenarioSnapshot.FixedTrip trip : snapshot.fixedTrips()) {
+                if (!trip.trainId().equals(maintenance.trainId())) continue;
+                Literal workBeforeTrip = model.newBoolVar("work_before_trip_" + requirement.maintenanceBlockId()
+                        + "_" + trip.id());
+                model.addLessOrEqual(work.end(), trip.startMinute()).onlyEnforceIf(workBeforeTrip);
+                model.addGreaterOrEqual(work.start(), trip.endMinute()).onlyEnforceIf(workBeforeTrip.not());
+                model.addLessOrEqual(check.end(), trip.startMinute()).onlyEnforceIf(workBeforeTrip);
             }
         }
 

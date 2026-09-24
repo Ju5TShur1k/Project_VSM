@@ -34,9 +34,9 @@ public final class EarliestDueDatePlanner implements Planner {
         for (OperationalConstraints.FrozenPlacement frozen : snapshot.operations().frozenPlacements()) {
             ScenarioSnapshot.ServiceBlock block = blockById.get(frozen.blockId());
             int end = frozen.startMinute() + block.durationMinutes();
-            if (!available(snapshot, placed.values(), block, frozen.startMinute(), end)) {
+            if (!available(snapshot, placed, block, frozen.startMinute(), end)) {
                 return failed(snapshot, request, startedAt, "EDD_FROZEN_CONFLICT",
-                        "A frozen placement conflicts with fixed commitments or a checked service window.");
+                        "A frozen placement conflicts with fixed commitments, release order, or a checked service window.");
             }
             placed.put(block.id(), new Placement(block, frozen.startMinute(), end));
             pending.remove(block);
@@ -70,13 +70,15 @@ public final class EarliestDueDatePlanner implements Planner {
                 }
                 int start = (int) minute;
                 int end = start + next.durationMinutes();
-                if (available(snapshot, placed.values(), next, start, end)) {
+                if (available(snapshot, placed, next, start, end)) {
                     chosen = new Placement(next, start, end);
                     break;
                 }
             }
             if (chosen == null) {
-                return failed(snapshot, request, startedAt, "EDD_NO_SLOT",
+                return failed(snapshot, request, startedAt,
+                        next.kind() == ScenarioSnapshot.ServiceBlock.Kind.RELEASE_CHECK
+                                ? "EDD_RELEASE_CHECK_NO_SLOT" : "EDD_NO_SLOT",
                         "Greedy EDD found no slot for block " + next.id()
                                 + "; this does not prove model infeasibility.");
             }
@@ -92,6 +94,16 @@ public final class EarliestDueDatePlanner implements Planner {
                 }
             }
         }
+        for (OperationalConstraints.ReleaseRequirement requirement : snapshot.operations().releaseRequirements()) {
+            Placement maintenance = placed.get(requirement.maintenanceBlockId());
+            Placement check = placed.get(requirement.checkBlockId());
+            if (check.start() < maintenance.end()
+                    || !noDepartureBeforeRelease(snapshot, maintenance.block().trainId(),
+                    maintenance.end(), check.end())) {
+                return failed(snapshot, request, startedAt, "EDD_RELEASE_GAP",
+                        "A fixed departure occurs after maintenance and before its release check is complete.");
+            }
+        }
 
         List<PlannerResult.PlannedBlock> blocks = placed.values().stream()
                 .sorted(Comparator.comparingInt(Placement::start).thenComparing(p -> p.block().id()))
@@ -105,13 +117,22 @@ public final class EarliestDueDatePlanner implements Planner {
                 elapsed(startedAt), makespan);
     }
 
-    private static boolean available(ScenarioSnapshot snapshot, Iterable<Placement> placed,
+    private static boolean available(ScenarioSnapshot snapshot, Map<UUID, Placement> placed,
                                      ScenarioSnapshot.ServiceBlock block, int start, int end) {
-        if ("1.2".equals(snapshot.schemaVersion()) && snapshot.operations().serviceWindows().stream()
+        if (("1.2".equals(snapshot.schemaVersion()) || "1.3".equals(snapshot.schemaVersion()))
+                && snapshot.operations().serviceWindows().stream()
                 .noneMatch(window -> window.trainId().equals(block.trainId())
                         && window.resourceId().equals(block.resourceId())
                         && window.startMinute() <= start && end <= window.endMinute())) {
             return false;
+        }
+        for (OperationalConstraints.ReleaseRequirement requirement : snapshot.operations().releaseRequirements()) {
+            if (!requirement.checkBlockId().equals(block.id())) continue;
+            Placement maintenance = placed.get(requirement.maintenanceBlockId());
+            if (maintenance != null && (start < maintenance.end()
+                    || !noDepartureBeforeRelease(snapshot, block.trainId(), maintenance.end(), end))) {
+                return false;
+            }
         }
         for (ScenarioSnapshot.FixedTrip trip : snapshot.fixedTrips()) {
             if (block.trainId().equals(trip.trainId()) && overlaps(start, end, trip.startMinute(), trip.endMinute())) {
@@ -125,7 +146,7 @@ public final class EarliestDueDatePlanner implements Planner {
                 return false;
             }
         }
-        for (Placement other : placed) {
+        for (Placement other : placed.values()) {
             if ((block.trainId().equals(other.block().trainId())
                     || block.resourceId().equals(other.block().resourceId()))
                     && overlaps(start, end, other.start(), other.end())) {
@@ -133,6 +154,12 @@ public final class EarliestDueDatePlanner implements Planner {
             }
         }
         return true;
+    }
+
+    private static boolean noDepartureBeforeRelease(ScenarioSnapshot snapshot, UUID trainId,
+                                                    int maintenanceEnd, int releaseEnd) {
+        return snapshot.fixedTrips().stream().noneMatch(trip -> trip.trainId().equals(trainId)
+                && trip.startMinute() >= maintenanceEnd && trip.startMinute() < releaseEnd);
     }
 
     private static boolean overlaps(int aStart, int aEnd, int bStart, int bEnd) {

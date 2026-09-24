@@ -37,7 +37,8 @@ public record PlannerRequest(
             throw new IllegalArgumentException("request does not match snapshot id/hash");
         }
         if (frozenUntilMinute > snapshot.horizonMinutes()
-                || (frozenUntilMinute > 0 && !"1.2".equals(snapshot.schemaVersion()))) {
+                || (frozenUntilMinute > 0 && !"1.2".equals(snapshot.schemaVersion())
+                && !"1.3".equals(snapshot.schemaVersion()))) {
             throw new IllegalArgumentException("frozenUntilMinute requires an E3 snapshot and must fit the horizon");
         }
     }

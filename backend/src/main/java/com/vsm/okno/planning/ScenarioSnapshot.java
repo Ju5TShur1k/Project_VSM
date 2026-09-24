@@ -11,7 +11,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/** Immutable prepared planning input. Schema 1.2 adds explicit operational facts. */
+/** Immutable prepared planning input. Schema 1.3 adds explicit maintenance release checks. */
 public record ScenarioSnapshot(
         String schemaVersion,
         UUID scenarioId,
@@ -40,7 +40,8 @@ public record ScenarioSnapshot(
     }
 
     public ScenarioSnapshot {
-        if (!"1.0".equals(schemaVersion) && !"1.1".equals(schemaVersion) && !"1.2".equals(schemaVersion)) {
+        if (!"1.0".equals(schemaVersion) && !"1.1".equals(schemaVersion)
+                && !"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion)) {
             throw new IllegalArgumentException("unsupported snapshot schemaVersion");
         }
         Objects.requireNonNull(scenarioId, "scenarioId");
@@ -56,8 +57,11 @@ public record ScenarioSnapshot(
         if ("1.0".equals(schemaVersion) && !fixedTrips.isEmpty()) {
             throw new IllegalArgumentException("fixed trips require snapshot schemaVersion 1.1 or later");
         }
-        if (!"1.2".equals(schemaVersion) && !operations.isEmpty()) {
-            throw new IllegalArgumentException("operational facts require snapshot schemaVersion 1.2");
+        if (!"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion) && !operations.isEmpty()) {
+            throw new IllegalArgumentException("operational facts require snapshot schemaVersion 1.2 or later");
+        }
+        if (!"1.3".equals(schemaVersion) && !operations.releaseRequirements().isEmpty()) {
+            throw new IllegalArgumentException("release requirements require snapshot schemaVersion 1.3");
         }
 
         Duration horizon = Duration.between(horizonStart, horizonEnd);
@@ -79,6 +83,9 @@ public record ScenarioSnapshot(
         Set<UUID> blockIds = new HashSet<>();
         for (ServiceBlock block : blocks) {
             if (!blockIds.add(block.id())) throw new IllegalArgumentException("duplicate block id: " + block.id());
+            if (!"1.3".equals(schemaVersion) && block.kind() != ServiceBlock.Kind.GENERAL) {
+                throw new IllegalArgumentException("typed blocks require snapshot schemaVersion 1.3");
+            }
             if (!trainIds.contains(block.trainId())) throw new IllegalArgumentException("unknown train: " + block.trainId());
             if (!resourceIds.contains(block.resourceId())) throw new IllegalArgumentException("unknown resource: " + block.resourceId());
             if (block.latestEndMinute() > horizonMinutes) {
@@ -120,6 +127,33 @@ public record ScenarioSnapshot(
         }
         Map<UUID, ServiceBlock> blockById = blocks.stream()
                 .collect(Collectors.toMap(ServiceBlock::id, Function.identity()));
+        if ("1.3".equals(schemaVersion)) {
+            Set<UUID> maintenanceWithRelease = new HashSet<>();
+            Set<UUID> usedChecks = new HashSet<>();
+            for (ServiceBlock block : blocks) {
+                if (block.kind() == ServiceBlock.Kind.GENERAL) {
+                    throw new IllegalArgumentException("schema 1.3 requires a block kind: " + block.id());
+                }
+            }
+            for (OperationalConstraints.ReleaseRequirement requirement : operations.releaseRequirements()) {
+                ServiceBlock maintenance = blockById.get(requirement.maintenanceBlockId());
+                ServiceBlock check = blockById.get(requirement.checkBlockId());
+                if (maintenance == null || maintenance.kind() != ServiceBlock.Kind.MAINTENANCE
+                        || check == null || check.kind() != ServiceBlock.Kind.RELEASE_CHECK
+                        || !maintenance.trainId().equals(check.trainId())
+                        || !check.predecessorIds().contains(maintenance.id())
+                        || !maintenanceWithRelease.add(maintenance.id()) || !usedChecks.add(check.id())) {
+                    throw new IllegalArgumentException("invalid release requirement for maintenance block: "
+                            + requirement.maintenanceBlockId());
+                }
+            }
+            for (ServiceBlock block : blocks) {
+                if ((block.kind() == ServiceBlock.Kind.MAINTENANCE && !maintenanceWithRelease.contains(block.id()))
+                        || (block.kind() == ServiceBlock.Kind.RELEASE_CHECK && !usedChecks.contains(block.id()))) {
+                    throw new IllegalArgumentException("unpaired maintenance or release check: " + block.id());
+                }
+            }
+        }
         Set<UUID> frozenIds = new HashSet<>();
         for (OperationalConstraints.FrozenPlacement placement : operations.frozenPlacements()) {
             ServiceBlock block = blockById.get(placement.blockId());
@@ -139,7 +173,7 @@ public record ScenarioSnapshot(
                 }
             }
         }
-        if (blocks.isEmpty() && !"1.2".equals(schemaVersion)) {
+        if (blocks.isEmpty() && !"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion)) {
             throw new IllegalArgumentException("at least one required block is needed");
         }
         for (ServiceBlock block : blocks) {
@@ -198,17 +232,27 @@ public record ScenarioSnapshot(
             int durationMinutes,
             int earliestStartMinute,
             int latestEndMinute,
-            List<UUID> predecessorIds
+            List<UUID> predecessorIds,
+            Kind kind
     ) {
+        public ServiceBlock(UUID id, UUID trainId, String resourceId, int durationMinutes,
+                            int earliestStartMinute, int latestEndMinute, List<UUID> predecessorIds) {
+            this(id, trainId, resourceId, durationMinutes, earliestStartMinute, latestEndMinute,
+                    predecessorIds, Kind.GENERAL);
+        }
+
         public ServiceBlock {
             Objects.requireNonNull(id, "block id");
             Objects.requireNonNull(trainId, "trainId");
             requireText(resourceId, "resourceId");
             predecessorIds = List.copyOf(Objects.requireNonNull(predecessorIds, "predecessorIds"));
+            Objects.requireNonNull(kind, "kind");
             if (durationMinutes <= 0 || earliestStartMinute < 0 || latestEndMinute < 0
                     || (long) earliestStartMinute + durationMinutes > latestEndMinute) {
                 throw new IllegalArgumentException("invalid block duration/window: " + id);
             }
         }
+
+        public enum Kind { GENERAL, MAINTENANCE, CLEANING, RELEASE_CHECK, OTHER }
     }
 }

@@ -10,22 +10,41 @@ public record OperationalConstraints(
         Set<UUID> protectedReserveTrainIds,
         List<FixedOccupancy> fixedOccupancies,
         List<ServiceWindow> serviceWindows,
-        List<FrozenPlacement> frozenPlacements
+        List<FrozenPlacement> frozenPlacements,
+        List<ReleaseRequirement> releaseRequirements
 ) {
+    public OperationalConstraints(Set<UUID> protectedReserveTrainIds, List<FixedOccupancy> fixedOccupancies,
+                                  List<ServiceWindow> serviceWindows, List<FrozenPlacement> frozenPlacements) {
+        this(protectedReserveTrainIds, fixedOccupancies, serviceWindows, frozenPlacements, List.of());
+    }
+
     public OperationalConstraints {
         protectedReserveTrainIds = Set.copyOf(Objects.requireNonNull(protectedReserveTrainIds, "protectedReserveTrainIds"));
         fixedOccupancies = List.copyOf(Objects.requireNonNull(fixedOccupancies, "fixedOccupancies"));
         serviceWindows = List.copyOf(Objects.requireNonNull(serviceWindows, "serviceWindows"));
         frozenPlacements = List.copyOf(Objects.requireNonNull(frozenPlacements, "frozenPlacements"));
+        releaseRequirements = List.copyOf(Objects.requireNonNull(releaseRequirements, "releaseRequirements"));
     }
 
     public static OperationalConstraints none() {
-        return new OperationalConstraints(Set.of(), List.of(), List.of(), List.of());
+        return new OperationalConstraints(Set.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     public boolean isEmpty() {
         return protectedReserveTrainIds.isEmpty() && fixedOccupancies.isEmpty()
-                && serviceWindows.isEmpty() && frozenPlacements.isEmpty();
+                && serviceWindows.isEmpty() && frozenPlacements.isEmpty() && releaseRequirements.isEmpty();
+    }
+
+    /** A scheduled release check required after maintenance and before the next fixed departure. */
+    public record ReleaseRequirement(UUID maintenanceBlockId, UUID checkBlockId, String source) {
+        public ReleaseRequirement {
+            Objects.requireNonNull(maintenanceBlockId, "maintenanceBlockId");
+            Objects.requireNonNull(checkBlockId, "checkBlockId");
+            if (maintenanceBlockId.equals(checkBlockId)) {
+                throw new IllegalArgumentException("release check must be a separate block");
+            }
+            requireText(source, "release requirement source");
+        }
     }
 
     /** A confirmed occupied interval for a train, an exclusive resource, or both. */
