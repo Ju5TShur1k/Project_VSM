@@ -71,7 +71,8 @@ class ReleasePlanningTest {
     private static ScenarioSnapshot snapshot(int workStart, int workEnd, int checkStart,
                                              int checkEnd, boolean includeRequirement) {
         ScenarioSnapshot.ServiceBlock work = new ScenarioSnapshot.ServiceBlock(WORK, TRAIN, "SERVICE", 20,
-                workStart, workEnd, List.of(), ScenarioSnapshot.ServiceBlock.Kind.MAINTENANCE);
+                workStart, workEnd, List.of(),
+                ScenarioSnapshot.ServiceBlock.Kind.RELEASE_GATED_MAINTENANCE);
         ScenarioSnapshot.ServiceBlock check = new ScenarioSnapshot.ServiceBlock(CHECK, TRAIN, "INSPECT", 10,
                 checkStart, checkEnd, List.of(WORK), ScenarioSnapshot.ServiceBlock.Kind.RELEASE_CHECK);
         OperationalConstraints operations = new OperationalConstraints(Set.of(), List.of(),

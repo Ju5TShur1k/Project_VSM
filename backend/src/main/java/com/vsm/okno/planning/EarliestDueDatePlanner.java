@@ -27,6 +27,11 @@ public final class EarliestDueDatePlanner implements Planner {
             return failed(snapshot, request, startedAt, "EDD_FIXED_CONFLICT",
                     "Fixed trips and operational occupancies overlap; no complete baseline was established.");
         }
+        if (snapshot.operations().hotReserve() != null
+                && !HotReserveCoverage.assess(snapshot, List.of()).satisfiesRequirement()) {
+            return failed(snapshot, request, startedAt, "EDD_FIXED_RESERVE_SHORTFALL",
+                    "Fixed commitments leave fewer than four eligible trains in hot reserve.");
+        }
         Map<UUID, Placement> placed = new HashMap<>();
         List<ScenarioSnapshot.ServiceBlock> pending = new ArrayList<>(snapshot.blocks());
         Map<UUID, ScenarioSnapshot.ServiceBlock> blockById = new HashMap<>();
@@ -119,7 +124,8 @@ public final class EarliestDueDatePlanner implements Planner {
 
     private static boolean available(ScenarioSnapshot snapshot, Map<UUID, Placement> placed,
                                      ScenarioSnapshot.ServiceBlock block, int start, int end) {
-        if (("1.2".equals(snapshot.schemaVersion()) || "1.3".equals(snapshot.schemaVersion()))
+        if (("1.2".equals(snapshot.schemaVersion()) || "1.3".equals(snapshot.schemaVersion())
+                || "1.4".equals(snapshot.schemaVersion()))
                 && snapshot.operations().serviceWindows().stream()
                 .noneMatch(window -> window.trainId().equals(block.trainId())
                         && window.resourceId().equals(block.resourceId())
@@ -152,6 +158,15 @@ public final class EarliestDueDatePlanner implements Planner {
                     && overlaps(start, end, other.start(), other.end())) {
                 return false;
             }
+        }
+        if (snapshot.operations().hotReserve() != null) {
+            List<HotReserveCoverage.Assignment> assignments = new ArrayList<>();
+            for (Placement other : placed.values()) {
+                assignments.add(new HotReserveCoverage.Assignment(other.block().trainId(),
+                        other.start(), other.end()));
+            }
+            assignments.add(new HotReserveCoverage.Assignment(block.trainId(), start, end));
+            if (!HotReserveCoverage.assess(snapshot, assignments).satisfiesRequirement()) return false;
         }
         return true;
     }

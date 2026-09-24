@@ -36,7 +36,10 @@ public final class CleaningObligationGenerator {
     public Projection generate(ScenarioSnapshot base, Map<UUID, Integer> completedTripsSinceCleaning, Rule rule) {
         Objects.requireNonNull(base, "base");
         Objects.requireNonNull(rule, "rule");
-        if (!"1.2".equals(base.schemaVersion())) throw new IllegalArgumentException("cleaning needs E3 snapshot 1.2");
+        if (!"1.2".equals(base.schemaVersion()) && !"1.3".equals(base.schemaVersion())
+                && !"1.4".equals(base.schemaVersion())) {
+            throw new IllegalArgumentException("cleaning needs E3 snapshot 1.2 or later");
+        }
         Map<UUID, Integer> counters = Map.copyOf(Objects.requireNonNull(completedTripsSinceCleaning,
                 "completedTripsSinceCleaning"));
         if (base.resources().stream().noneMatch(resource -> resource.id().equals(rule.resourceId()))) {
@@ -74,12 +77,14 @@ public final class CleaningObligationGenerator {
                 UUID blockId = UUID.nameUUIDFromBytes((base.scenarioId() + ":clean:"
                         + trainId + ":" + fourth.id()).getBytes(StandardCharsets.UTF_8));
                 blocks.add(new ScenarioSnapshot.ServiceBlock(blockId, trainId, rule.resourceId(),
-                        rule.durationMinutes(), fourth.endMinute(), next.startMinute(), List.of()));
+                        rule.durationMinutes(), fourth.endMinute(), next.startMinute(), List.of(),
+                        "1.2".equals(base.schemaVersion()) ? ScenarioSnapshot.ServiceBlock.Kind.GENERAL
+                                : ScenarioSnapshot.ServiceBlock.Kind.CLEANING));
                 obligations.add(new CleaningObligation(blockId, trainId, fourth.id(), next.id(), rule.source()));
                 completed = 0;
             }
         }
-        ScenarioSnapshot projected = new ScenarioSnapshot("1.2", base.scenarioId(), base.snapshotHash(),
+        ScenarioSnapshot projected = new ScenarioSnapshot(base.schemaVersion(), base.scenarioId(), base.snapshotHash(),
                 base.provenance(), base.horizonStart(), base.horizonEnd(), base.trains(), base.resources(),
                 blocks, base.fixedTrips(), base.operations());
         return new Projection(projected, obligations, pending);

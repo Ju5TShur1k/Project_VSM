@@ -93,6 +93,13 @@ class OperationalPlanningTest {
                 "synthetic-reserve", "synthetic", START, START.plusMinutes(150), trains(), resources(),
                 List.of(), List.of(new ScenarioSnapshot.FixedTrip(id("reserve-trip"), RESERVE,
                         "reserve trip", 0, 30, 670, "synthetic")), ops));
+        OperationalConstraints transferOnProtected = new OperationalConstraints(Set.of(RESERVE),
+                List.of(new OperationalConstraints.FixedOccupancy(id("reserve-transfer"), RESERVE,
+                        null, 0, 30, OperationalConstraints.Kind.TRANSFER, "synthetic")),
+                List.of(), List.of());
+        assertThrows(IllegalArgumentException.class, () -> new ScenarioSnapshot("1.2", SCENARIO,
+                "synthetic-reserve", "synthetic", START, START.plusMinutes(150), trains(), resources(),
+                List.of(), List.of(), transferOnProtected));
     }
 
     @Test

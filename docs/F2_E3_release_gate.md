@@ -4,14 +4,14 @@ This block extends the internal planner contract to `ScenarioSnapshot` schema `1
 
 ## Contract
 
-- Every `1.3` service block has an explicit `Kind`. `MAINTENANCE` must have exactly one `ReleaseRequirement` referencing a separate `RELEASE_CHECK` block on the same train; every release check must be paired. The check must list its maintenance block as a predecessor. `CLEANING` and `OTHER` are distinct so an unclassified block cannot silently bypass this gate. Older snapshot versions retain their untyped `GENERAL` blocks.
-- D1/A1 must supply the check duration, exclusive resource, checked location window and source. The snapshot rejects missing pairs, mismatched trains, and untyped `1.3` blocks before optimization. It cannot infer whether a source task was wrongly marked `OTHER`.
+- Every `1.3+` service block has an explicit `Kind`. `RELEASE_GATED_MAINTENANCE` must have exactly one `ReleaseRequirement` referencing a separate `RELEASE_CHECK` block on the same train; every release check must be paired. The check must list its work block as a predecessor. `MAINTENANCE`, `CLEANING` and `OTHER` do not imply an extra acceptance operation. Older snapshot versions retain their untyped `GENERAL` blocks.
+- The case PDF does not specify a separate release check. A `RELEASE_GATED_MAINTENANCE` block is therefore an explicit scenario policy, not a case-derived default. When that policy is supplied, its check duration, exclusive resource, checked location window and source are required. The snapshot rejects missing pairs, mismatched trains, and untyped `1.3+` blocks before optimization.
 - CP-SAT places the release check after the maintenance. For each fixed trip on that train, maintenance must lie either after the trip or finish before it; in the latter case the release check must finish before departure. B0 EDD applies the same departure rule to candidate check slots and never calls a greedy failure a proof of infeasibility.
 - Both blocks obey train/resource `NoOverlap`, service windows, frozen placements and the request cutoff. A release check in the future is a planned event. On execution, F1/D1 must record actual acceptance and keep the train unavailable until that acceptance is confirmed; D2 independently checks the release before approving the plan.
 
 ## Hand-checked cases
 
-A 20-minute maintenance at minutes 0–20 and a 10-minute check at 20–30 both finish before a fixed trip at 60–80. B0 and B1 can schedule that plan. If the check is only possible at 80–100, B0 returns `UNKNOWN` and CP-SAT proves this prepared model `INFEASIBLE`; neither emits a complete plan. Work at 80–100 with a check at 100–110 is allowed after the earlier trip. A maintenance block without its release requirement is rejected at snapshot construction.
+A synthetic 20-minute release-gated maintenance at minutes 0–20 and a 10-minute check at 20–30 both finish before a fixed trip at 60–80. B0 and B1 can schedule that plan. If the check is only possible at 80–100, B0 returns `UNKNOWN` and CP-SAT proves this prepared model `INFEASIBLE`; neither emits a complete plan. Work at 80–100 with a check at 100–110 is allowed after the earlier trip. A release-gated maintenance block without its release requirement is rejected at snapshot construction.
 
 Run the full backend suite from `backend` with Java 21, or run the planner smoke in the pinned Linux image from the repository root:
 

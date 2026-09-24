@@ -5,4 +5,4 @@ WORKDIR /app
 COPY pom.xml .
 RUN mvn -B -ntp dependency:go-offline
 COPY src ./src
-RUN mvn -B -ntp -Dtest=CpSatPlannerToyTest,FixedTurnPlanningTest,OperationalPlanningTest,ReleasePlanningTest test
+RUN mvn -B -ntp -Dtest=CpSatPlannerToyTest,FixedTurnPlanningTest,OperationalPlanningTest,ReleasePlanningTest,HotReservePlanningTest test

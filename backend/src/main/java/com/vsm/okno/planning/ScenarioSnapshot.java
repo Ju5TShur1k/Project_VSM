@@ -11,7 +11,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/** Immutable prepared planning input. Schema 1.3 adds explicit maintenance release checks. */
+/** Immutable prepared planning input. Schema 1.4 adds dynamic hot-reserve coverage. */
 public record ScenarioSnapshot(
         String schemaVersion,
         UUID scenarioId,
@@ -41,7 +41,8 @@ public record ScenarioSnapshot(
 
     public ScenarioSnapshot {
         if (!"1.0".equals(schemaVersion) && !"1.1".equals(schemaVersion)
-                && !"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion)) {
+                && !"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion)
+                && !"1.4".equals(schemaVersion)) {
             throw new IllegalArgumentException("unsupported snapshot schemaVersion");
         }
         Objects.requireNonNull(scenarioId, "scenarioId");
@@ -57,11 +58,16 @@ public record ScenarioSnapshot(
         if ("1.0".equals(schemaVersion) && !fixedTrips.isEmpty()) {
             throw new IllegalArgumentException("fixed trips require snapshot schemaVersion 1.1 or later");
         }
-        if (!"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion) && !operations.isEmpty()) {
+        if (!"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion)
+                && !"1.4".equals(schemaVersion) && !operations.isEmpty()) {
             throw new IllegalArgumentException("operational facts require snapshot schemaVersion 1.2 or later");
         }
-        if (!"1.3".equals(schemaVersion) && !operations.releaseRequirements().isEmpty()) {
+        if (!"1.3".equals(schemaVersion) && !"1.4".equals(schemaVersion)
+                && !operations.releaseRequirements().isEmpty()) {
             throw new IllegalArgumentException("release requirements require snapshot schemaVersion 1.3");
+        }
+        if ("1.4".equals(schemaVersion) != (operations.hotReserve() != null)) {
+            throw new IllegalArgumentException("hot reserve is required exactly for snapshot schemaVersion 1.4");
         }
 
         Duration horizon = Duration.between(horizonStart, horizonEnd);
@@ -83,7 +89,8 @@ public record ScenarioSnapshot(
         Set<UUID> blockIds = new HashSet<>();
         for (ServiceBlock block : blocks) {
             if (!blockIds.add(block.id())) throw new IllegalArgumentException("duplicate block id: " + block.id());
-            if (!"1.3".equals(schemaVersion) && block.kind() != ServiceBlock.Kind.GENERAL) {
+            if (!"1.3".equals(schemaVersion) && !"1.4".equals(schemaVersion)
+                    && block.kind() != ServiceBlock.Kind.GENERAL) {
                 throw new IllegalArgumentException("typed blocks require snapshot schemaVersion 1.3");
             }
             if (!trainIds.contains(block.trainId())) throw new IllegalArgumentException("unknown train: " + block.trainId());
@@ -101,6 +108,11 @@ public record ScenarioSnapshot(
         if (!trainIds.containsAll(operations.protectedReserveTrainIds())) {
             throw new IllegalArgumentException("unknown protected reserve train");
         }
+        if (operations.hotReserve() != null
+                && (!trainIds.containsAll(operations.hotReserve().eligibleTrainIds())
+                || !operations.hotReserve().eligibleTrainIds().containsAll(operations.protectedReserveTrainIds()))) {
+            throw new IllegalArgumentException("hot reserve needs known eligible trains including protected reserve");
+        }
         for (ServiceBlock block : blocks) {
             if (operations.protectedReserveTrainIds().contains(block.trainId())) {
                 throw new IllegalArgumentException("protected reserve cannot receive service: " + block.trainId());
@@ -115,7 +127,9 @@ public record ScenarioSnapshot(
         for (OperationalConstraints.FixedOccupancy occupancy : operations.fixedOccupancies()) {
             if (!occupancyIds.add(occupancy.id()) || occupancy.endMinute() > horizonMinutes
                     || (occupancy.trainId() != null && !trainIds.contains(occupancy.trainId()))
-                    || (occupancy.resourceId() != null && !resourceIds.contains(occupancy.resourceId()))) {
+                    || (occupancy.resourceId() != null && !resourceIds.contains(occupancy.resourceId()))
+                    || (occupancy.trainId() != null
+                    && operations.protectedReserveTrainIds().contains(occupancy.trainId()))) {
                 throw new IllegalArgumentException("invalid fixed occupancy: " + occupancy.id());
             }
         }
@@ -127,18 +141,19 @@ public record ScenarioSnapshot(
         }
         Map<UUID, ServiceBlock> blockById = blocks.stream()
                 .collect(Collectors.toMap(ServiceBlock::id, Function.identity()));
-        if ("1.3".equals(schemaVersion)) {
+        if ("1.3".equals(schemaVersion) || "1.4".equals(schemaVersion)) {
             Set<UUID> maintenanceWithRelease = new HashSet<>();
             Set<UUID> usedChecks = new HashSet<>();
             for (ServiceBlock block : blocks) {
                 if (block.kind() == ServiceBlock.Kind.GENERAL) {
-                    throw new IllegalArgumentException("schema 1.3 requires a block kind: " + block.id());
+                    throw new IllegalArgumentException("schema 1.3+ requires a block kind: " + block.id());
                 }
             }
             for (OperationalConstraints.ReleaseRequirement requirement : operations.releaseRequirements()) {
                 ServiceBlock maintenance = blockById.get(requirement.maintenanceBlockId());
                 ServiceBlock check = blockById.get(requirement.checkBlockId());
-                if (maintenance == null || maintenance.kind() != ServiceBlock.Kind.MAINTENANCE
+                if (maintenance == null
+                        || maintenance.kind() != ServiceBlock.Kind.RELEASE_GATED_MAINTENANCE
                         || check == null || check.kind() != ServiceBlock.Kind.RELEASE_CHECK
                         || !maintenance.trainId().equals(check.trainId())
                         || !check.predecessorIds().contains(maintenance.id())
@@ -148,7 +163,8 @@ public record ScenarioSnapshot(
                 }
             }
             for (ServiceBlock block : blocks) {
-                if ((block.kind() == ServiceBlock.Kind.MAINTENANCE && !maintenanceWithRelease.contains(block.id()))
+                if ((block.kind() == ServiceBlock.Kind.RELEASE_GATED_MAINTENANCE
+                        && !maintenanceWithRelease.contains(block.id()))
                         || (block.kind() == ServiceBlock.Kind.RELEASE_CHECK && !usedChecks.contains(block.id()))) {
                     throw new IllegalArgumentException("unpaired maintenance or release check: " + block.id());
                 }
@@ -173,7 +189,8 @@ public record ScenarioSnapshot(
                 }
             }
         }
-        if (blocks.isEmpty() && !"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion)) {
+        if (blocks.isEmpty() && !"1.2".equals(schemaVersion) && !"1.3".equals(schemaVersion)
+                && !"1.4".equals(schemaVersion)) {
             throw new IllegalArgumentException("at least one required block is needed");
         }
         for (ServiceBlock block : blocks) {
@@ -253,6 +270,6 @@ public record ScenarioSnapshot(
             }
         }
 
-        public enum Kind { GENERAL, MAINTENANCE, CLEANING, RELEASE_CHECK, OTHER }
+        public enum Kind { GENERAL, MAINTENANCE, RELEASE_GATED_MAINTENANCE, CLEANING, RELEASE_CHECK, OTHER }
     }
 }

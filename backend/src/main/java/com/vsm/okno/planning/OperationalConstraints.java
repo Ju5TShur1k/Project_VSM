@@ -11,11 +11,19 @@ public record OperationalConstraints(
         List<FixedOccupancy> fixedOccupancies,
         List<ServiceWindow> serviceWindows,
         List<FrozenPlacement> frozenPlacements,
-        List<ReleaseRequirement> releaseRequirements
+        List<ReleaseRequirement> releaseRequirements,
+        HotReserve hotReserve
 ) {
     public OperationalConstraints(Set<UUID> protectedReserveTrainIds, List<FixedOccupancy> fixedOccupancies,
                                   List<ServiceWindow> serviceWindows, List<FrozenPlacement> frozenPlacements) {
-        this(protectedReserveTrainIds, fixedOccupancies, serviceWindows, frozenPlacements, List.of());
+        this(protectedReserveTrainIds, fixedOccupancies, serviceWindows, frozenPlacements, List.of(), null);
+    }
+
+    public OperationalConstraints(Set<UUID> protectedReserveTrainIds, List<FixedOccupancy> fixedOccupancies,
+                                  List<ServiceWindow> serviceWindows, List<FrozenPlacement> frozenPlacements,
+                                  List<ReleaseRequirement> releaseRequirements) {
+        this(protectedReserveTrainIds, fixedOccupancies, serviceWindows, frozenPlacements,
+                releaseRequirements, null);
     }
 
     public OperationalConstraints {
@@ -27,12 +35,26 @@ public record OperationalConstraints(
     }
 
     public static OperationalConstraints none() {
-        return new OperationalConstraints(Set.of(), List.of(), List.of(), List.of(), List.of());
+        return new OperationalConstraints(Set.of(), List.of(), List.of(), List.of(), List.of(), null);
     }
 
     public boolean isEmpty() {
         return protectedReserveTrainIds.isEmpty() && fixedOccupancies.isEmpty()
-                && serviceWindows.isEmpty() && frozenPlacements.isEmpty() && releaseRequirements.isEmpty();
+                && serviceWindows.isEmpty() && frozenPlacements.isEmpty() && releaseRequirements.isEmpty()
+                && hotReserve == null;
+    }
+
+    /** Trains independently confirmed able to enter hot reserve whenever idle in this horizon. */
+    public record HotReserve(Set<UUID> eligibleTrainIds, String source) {
+        public static final int REQUIRED_TRAINS = 4;
+
+        public HotReserve {
+            eligibleTrainIds = Set.copyOf(Objects.requireNonNull(eligibleTrainIds, "eligibleTrainIds"));
+            if (eligibleTrainIds.size() < REQUIRED_TRAINS) {
+                throw new IllegalArgumentException("at least four hot-reserve-eligible trains required");
+            }
+            requireText(source, "hot reserve source");
+        }
     }
 
     /** A scheduled release check required after maintenance and before the next fixed departure. */

@@ -4,6 +4,7 @@ import com.google.ortools.Loader;
 import com.google.ortools.sat.CpModel;
 import com.google.ortools.sat.CpSolver;
 import com.google.ortools.sat.CpSolverStatus;
+import com.google.ortools.sat.CumulativeConstraint;
 import com.google.ortools.sat.Literal;
 import com.google.ortools.sat.IntVar;
 import com.google.ortools.sat.IntervalVar;
@@ -36,6 +37,10 @@ public final class CpSatPlanner implements Planner {
         Map<UUID, Variables> byBlock = new LinkedHashMap<>();
         Map<UUID, List<IntervalVar>> byTrain = new HashMap<>();
         Map<String, List<IntervalVar>> byResource = new HashMap<>();
+        OperationalConstraints.HotReserve reserve = snapshot.operations().hotReserve();
+        CumulativeConstraint reserveUnavailable = reserve == null ? null
+                : model.addCumulative(reserve.eligibleTrainIds().size()
+                - OperationalConstraints.HotReserve.REQUIRED_TRAINS);
         List<IntVar> ends = new ArrayList<>();
         Map<UUID, Integer> frozenStarts = new HashMap<>();
         for (OperationalConstraints.FrozenPlacement frozen : snapshot.operations().frozenPlacements()) {
@@ -53,6 +58,9 @@ public final class CpSatPlanner implements Planner {
             byBlock.put(block.id(), new Variables(start, end, interval));
             byTrain.computeIfAbsent(block.trainId(), ignored -> new ArrayList<>()).add(interval);
             byResource.computeIfAbsent(block.resourceId(), ignored -> new ArrayList<>()).add(interval);
+            if (reserve != null && reserve.eligibleTrainIds().contains(block.trainId())) {
+                reserveUnavailable.addDemand(interval, 1);
+            }
             ends.add(end);
 
             Integer frozenStart = frozenStarts.get(block.id());
@@ -61,7 +69,8 @@ public final class CpSatPlanner implements Planner {
             } else if (request.frozenUntilMinute() > 0) {
                 model.addGreaterOrEqual(start, request.frozenUntilMinute());
             }
-            if ("1.2".equals(snapshot.schemaVersion()) || "1.3".equals(snapshot.schemaVersion())) {
+            if ("1.2".equals(snapshot.schemaVersion()) || "1.3".equals(snapshot.schemaVersion())
+                    || "1.4".equals(snapshot.schemaVersion())) {
                 List<Literal> choices = new ArrayList<>();
                 for (OperationalConstraints.ServiceWindow window : snapshot.operations().serviceWindows()) {
                     if (!window.trainId().equals(block.trainId())
@@ -84,6 +93,9 @@ public final class CpSatPlanner implements Planner {
                     LinearExpr.constant(trip.endMinute() - trip.startMinute()),
                     model.newConstant(trip.endMinute()), "trip_" + trip.id());
             byTrain.computeIfAbsent(trip.trainId(), ignored -> new ArrayList<>()).add(occupied);
+            if (reserve != null && reserve.eligibleTrainIds().contains(trip.trainId())) {
+                reserveUnavailable.addDemand(occupied, 1);
+            }
         }
         for (OperationalConstraints.FixedOccupancy occupancy : snapshot.operations().fixedOccupancies()) {
             IntervalVar occupied = model.newIntervalVar(model.newConstant(occupancy.startMinute()),
@@ -91,6 +103,9 @@ public final class CpSatPlanner implements Planner {
                     model.newConstant(occupancy.endMinute()), "occupancy_" + occupancy.id());
             if (occupancy.trainId() != null) {
                 byTrain.computeIfAbsent(occupancy.trainId(), ignored -> new ArrayList<>()).add(occupied);
+                if (reserve != null && reserve.eligibleTrainIds().contains(occupancy.trainId())) {
+                    reserveUnavailable.addDemand(occupied, 1);
+                }
             }
             if (occupancy.resourceId() != null) {
                 byResource.computeIfAbsent(occupancy.resourceId(), ignored -> new ArrayList<>()).add(occupied);
