@@ -21,6 +21,8 @@ public record PlannerRequest(
     }
 
     public enum Policy {
-        BLOCKS_CP_SAT
+        BLOCKS_CP_SAT,
+        WHOLE_CYCLE_CP_SAT,
+        WHOLE_CYCLE_EDD
     }
 }

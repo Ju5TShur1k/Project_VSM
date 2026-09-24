@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-/** Immutable, already prepared planning input. All minute offsets are relative to horizonStart. */
+/** Immutable prepared planning input. Schema 1.1 adds fixed trips; minutes are relative to horizonStart. */
 public record ScenarioSnapshot(
         String schemaVersion,
         UUID scenarioId,
@@ -18,10 +18,20 @@ public record ScenarioSnapshot(
         OffsetDateTime horizonEnd,
         List<Train> trains,
         List<Resource> resources,
-        List<ServiceBlock> blocks
+        List<ServiceBlock> blocks,
+        List<FixedTrip> fixedTrips
 ) {
+    public ScenarioSnapshot(String schemaVersion, UUID scenarioId, String snapshotHash, String provenance,
+                            OffsetDateTime horizonStart, OffsetDateTime horizonEnd, List<Train> trains,
+                            List<Resource> resources, List<ServiceBlock> blocks) {
+        this(schemaVersion, scenarioId, snapshotHash, provenance, horizonStart, horizonEnd,
+                trains, resources, blocks, List.of());
+    }
+
     public ScenarioSnapshot {
-        if (!"1.0".equals(schemaVersion)) throw new IllegalArgumentException("unsupported snapshot schemaVersion");
+        if (!"1.0".equals(schemaVersion) && !"1.1".equals(schemaVersion)) {
+            throw new IllegalArgumentException("unsupported snapshot schemaVersion");
+        }
         Objects.requireNonNull(scenarioId, "scenarioId");
         requireText(snapshotHash, "snapshotHash");
         requireText(provenance, "provenance");
@@ -30,6 +40,10 @@ public record ScenarioSnapshot(
         trains = List.copyOf(Objects.requireNonNull(trains, "trains"));
         resources = List.copyOf(Objects.requireNonNull(resources, "resources"));
         blocks = List.copyOf(Objects.requireNonNull(blocks, "blocks"));
+        fixedTrips = List.copyOf(Objects.requireNonNull(fixedTrips, "fixedTrips"));
+        if ("1.0".equals(schemaVersion) && !fixedTrips.isEmpty()) {
+            throw new IllegalArgumentException("fixed trips require snapshot schemaVersion 1.1");
+        }
 
         Duration horizon = Duration.between(horizonStart, horizonEnd);
         long seconds = horizon.getSeconds();
@@ -54,6 +68,22 @@ public record ScenarioSnapshot(
             if (!resourceIds.contains(block.resourceId())) throw new IllegalArgumentException("unknown resource: " + block.resourceId());
             if (block.latestEndMinute() > horizonMinutes) {
                 throw new IllegalArgumentException("block window exceeds horizon: " + block.id());
+            }
+        }
+        Set<UUID> tripIds = new HashSet<>();
+        for (FixedTrip trip : fixedTrips) {
+            if (!tripIds.add(trip.id())) throw new IllegalArgumentException("duplicate fixed trip id: " + trip.id());
+            if (!trainIds.contains(trip.trainId())) throw new IllegalArgumentException("unknown trip train: " + trip.trainId());
+            if (trip.endMinute() > horizonMinutes) throw new IllegalArgumentException("trip exceeds horizon: " + trip.id());
+        }
+        for (int i = 0; i < fixedTrips.size(); i++) {
+            FixedTrip a = fixedTrips.get(i);
+            for (int j = i + 1; j < fixedTrips.size(); j++) {
+                FixedTrip b = fixedTrips.get(j);
+                if (a.trainId().equals(b.trainId()) && a.startMinute() < b.endMinute()
+                        && b.startMinute() < a.endMinute()) {
+                    throw new IllegalArgumentException("overlapping fixed trips for train: " + a.trainId());
+                }
             }
         }
         if (blocks.isEmpty()) throw new IllegalArgumentException("E1 requires at least one block");
@@ -88,6 +118,20 @@ public record ScenarioSnapshot(
     public record Resource(String id) {
         public Resource {
             requireText(id, "resource id");
+        }
+    }
+
+    /** Fixed, already checked turnover. Mileage is credited only at arrival in E2. */
+    public record FixedTrip(UUID id, UUID trainId, String label, int startMinute, int endMinute,
+                            long distanceKm, String source) {
+        public FixedTrip {
+            Objects.requireNonNull(id, "trip id");
+            Objects.requireNonNull(trainId, "trip trainId");
+            requireText(label, "trip label");
+            requireText(source, "trip source");
+            if (startMinute < 0 || endMinute <= startMinute || distanceKm <= 0) {
+                throw new IllegalArgumentException("invalid fixed trip: " + id);
+            }
         }
     }
 

@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Solver output only. Independent validation and approval are separate stages. */
+/** Planner output only. Independent validation and approval are separate stages. */
 public record PlannerResult(
         String schemaVersion,
         UUID scenarioId,

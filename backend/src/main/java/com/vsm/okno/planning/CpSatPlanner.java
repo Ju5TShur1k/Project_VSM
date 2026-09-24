@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** E1 CP-SAT model: required indivisible blocks, exclusive resources and trains, windows, precedences. */
+/** E1/E2 CP-SAT model: indivisible work, fixed trips, exclusive resources, windows and precedences. */
 public final class CpSatPlanner implements Planner {
     private record Variables(IntVar start, IntVar end, IntervalVar interval) {}
 
@@ -26,7 +26,8 @@ public final class CpSatPlanner implements Planner {
                 || !snapshot.snapshotHash().equals(request.snapshotHash())) {
             throw new IllegalArgumentException("request does not match snapshot id/hash");
         }
-        if (request.policy() != PlannerRequest.Policy.BLOCKS_CP_SAT) {
+        if (request.policy() != PlannerRequest.Policy.BLOCKS_CP_SAT
+                && request.policy() != PlannerRequest.Policy.WHOLE_CYCLE_CP_SAT) {
             throw new IllegalArgumentException("unsupported planner policy");
         }
 
@@ -51,6 +52,13 @@ public final class CpSatPlanner implements Planner {
             byTrain.computeIfAbsent(block.trainId(), ignored -> new ArrayList<>()).add(interval);
             byResource.computeIfAbsent(block.resourceId(), ignored -> new ArrayList<>()).add(interval);
             ends.add(end);
+        }
+
+        for (ScenarioSnapshot.FixedTrip trip : snapshot.fixedTrips()) {
+            IntervalVar occupied = model.newIntervalVar(model.newConstant(trip.startMinute()),
+                    LinearExpr.constant(trip.endMinute() - trip.startMinute()),
+                    model.newConstant(trip.endMinute()), "trip_" + trip.id());
+            byTrain.computeIfAbsent(trip.trainId(), ignored -> new ArrayList<>()).add(occupied);
         }
 
         byTrain.values().forEach(model::addNoOverlap);

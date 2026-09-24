@@ -1,0 +1,16 @@
+.planning-calendar h2 { margin-bottom: 0; }
+.calendar-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 16px; }
+.calendar-grid { min-width: 900px; }
+.calendar-axis { height: 46px; margin-left: 130px; position: relative; border-bottom: 1px solid var(--line); }
+.calendar-axis span { position: absolute; top: 8px; transform: translateX(-50%); color: var(--muted); font-size: 11px; white-space: nowrap; }
+.calendar-axis span:first-child { transform: none; }
+.calendar-row { display: grid; grid-template-columns: 130px 1fr; min-height: 52px; border-bottom: 1px solid var(--line); }
+.calendar-row:last-child { border-bottom: 0; }
+.calendar-row > strong { padding: 14px 10px; border-right: 1px solid var(--line); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-track { position: relative; min-height: 50px; background-image: linear-gradient(to right, var(--line) 1px, transparent 1px); }
+.calendar-block { position: absolute; top: 9px; height: 32px; margin: 0 !important; padding: 2px 5px !important; border: 1px solid transparent; border-radius: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; font-size: 11px; }
+.calendar-block.trip { background: #64748b; color: white; }
+.calendar-block.service { background: #2563eb; color: white; }
+.calendar-block.selected { outline: 2px solid var(--text); outline-offset: 2px; }
+.calendar-detail { padding-top: 4px; }
+.calendar-detail .kv { margin-top: 8px; }
