@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Train, Unauthorized } from './api'
 import Login from './Login'
 import Planning from './Planning'
+import CalendarDemo from './calendar/CalendarDemo'
 
 export default function App() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, retry: false })
@@ -10,6 +11,11 @@ export default function App() {
   if (me.isPending) return <main><p className="muted">Загрузка…</p></main>
   if (me.error instanceof Unauthorized) return <Login />
   if (me.isError) return <main><p className="error">Ошибка: {me.error.message}</p></main>
+  if (new URLSearchParams(window.location.search).get('calendarDemo') === '1') return <main>
+    <h1>ОКНО ВСМ <span>/ Календарь F2 E2</span></h1>
+    <p className="muted"><a href="/">← Вернуться к парку</a></p>
+    <CalendarDemo />
+  </main>
   return <Fleet username={me.data.username} />
 }
 
@@ -52,6 +58,8 @@ function Fleet({ username }: { username: string }) {
           </button>
         </span>
       </div>
+
+      <p className="muted"><a href="/?calendarDemo=1">Открыть синтетический календарь F2 E2</a></p>
 
       {scenarioId ? (
         <>
