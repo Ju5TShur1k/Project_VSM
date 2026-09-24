@@ -1,8 +1,8 @@
-# Run the E1/E2 CP-SAT tests on the same Linux/JDK family used by the API build.
+# Run the E1/E2/E3 planning tests on the same Linux/JDK family used by the API build.
 # docker build -f backend/Dockerfile.planning-smoke backend
 FROM maven:3.9-eclipse-temurin-21@sha256:c2a2c58516d160f43b50f12baa427ca86989e0bc942609e04aff61da5d9a7d74
 WORKDIR /app
 COPY pom.xml .
 RUN mvn -B -ntp dependency:go-offline
 COPY src ./src
-RUN mvn -B -ntp -Dtest=CpSatPlannerToyTest,FixedTurnPlanningTest test
+RUN mvn -B -ntp -Dtest=CpSatPlannerToyTest,FixedTurnPlanningTest,OperationalPlanningTest,ReleasePlanningTest,HotReservePlanningTest test
