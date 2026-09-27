@@ -29,6 +29,17 @@ public class ApiController {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.importScenario(request));
     }
 
+    @PostMapping("/demo/source")
+    public ResponseEntity<Dto.DemoSource> importDemoSource() {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.importDemoSource());
+    }
+
+    @PostMapping("/demo/scenarios/{id}/r1-arrival")
+    public Dto.DemoSource changeDemoR1Arrival(@PathVariable UUID id,
+                                               @RequestBody Dto.TripTimeChange request) {
+        return service.changeDemoR1Arrival(id, request.arrivalMinute());
+    }
+
     @GetMapping("/scenarios/{id}")
     public Dto.Scenario getScenario(@PathVariable UUID id) {
         return service.getScenario(id);
@@ -58,6 +69,11 @@ public class ApiController {
     @GetMapping("/plans/{id}")
     public Dto.Plan getPlan(@PathVariable UUID id) {
         return service.getPlan(id);
+    }
+
+    @GetMapping("/plans/{id}/calendar")
+    public Dto.PlanCalendar getCalendar(@PathVariable UUID id) {
+        return service.getCalendar(id);
     }
 
     @PostMapping("/plans/{id}/approve")

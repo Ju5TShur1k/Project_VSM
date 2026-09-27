@@ -113,6 +113,7 @@ a { color: var(--accent); }
 .kv dd { margin: 0; }
 .viol { margin: 0 0 16px; padding-left: 18px; }
 .badge.DRAFT { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.demo-label { display: inline-block; margin: 12px 0 0; padding: 4px 10px; border-radius: 6px; color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); font-weight: 700; }
 .badge.CRITICAL, .badge.INFEASIBLE, .badge.UNKNOWN, .badge.MODEL_INVALID { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
 details { margin-top: 16px; }
 summary { cursor: pointer; color: var(--muted); font-size: 13px; }

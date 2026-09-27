@@ -85,6 +85,37 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  /demo/source:
+    post:
+      summary: Create synthetic E2 source facts and capture an immutable D1 snapshot
+      description: Requires the database profile. All facts are labelled demonstration data.
+      responses:
+        '201':
+          description: Saved source snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DemoSource' }
+
+  /demo/scenarios/{id}/r1-arrival:
+    post:
+      summary: Change source trip R1 arrival and capture a new immutable snapshot
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [arrivalMinute]
+              properties:
+                arrivalMinute: { type: integer, minimum: 50, maximum: 60, description: "Minutes after 2028-07-01T00:00:00+03:00" }
+      responses:
+        '200':
+          description: New saved source snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DemoSource' }
+
   /scenarios/{id}:
     get:
       summary: Get scenario snapshot
@@ -189,6 +220,17 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Plan' }
 
+  /plans/{id}/calendar:
+    get:
+      summary: Calendar from the immutable snapshot and actual planner result
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: Fixed source trips and calculated service intervals
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanCalendar' }
+
   /plans/{id}/approve:
     post:
       summary: Approve a plan version
@@ -241,6 +283,13 @@ components:
       required: true
       schema: { type: string, format: uuid }
   schemas:
+    DemoSource:
+      type: object
+      properties:
+        scenarioId: { type: string, format: uuid }
+        snapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string }
+        provenance: { type: string }
     Train:
       type: object
       properties:
@@ -248,7 +297,7 @@ components:
         externalId: { type: string }
         status:
           type: string
-          enum: [IN_SERVICE, READY_IDLE, HOT_RESERVE, MAINTENANCE, CLEANING, FAULT, TRANSFER, AWAITING_RELEASE, NOT_COMMISSIONED]
+          enum: [AVAILABLE, IN_SERVICE, READY_IDLE, HOT_RESERVE, MAINTENANCE, CLEANING, FAULT, TRANSFER, AWAITING_RELEASE, NOT_COMMISSIONED]
         mileageKm: { type: number }
         nextObligation: { type: string }
     JobRequest:
@@ -294,6 +343,51 @@ components:
         approvedBy: { type: string, nullable: true, description: "Authenticated user who approved; the request's actorId is ignored" }
         events: { type: array, items: { $ref: '#/components/schemas/PlanEvent' } }
         validations: { type: array, items: { $ref: '#/components/schemas/Validation' } }
+        snapshotHash: { type: string }
+        validationStatus: { type: string, enum: [NOT_PERFORMED, FAILED, PASS] }
+    PlanCalendar:
+      type: object
+      properties:
+        scenarioId: { type: string, format: uuid }
+        snapshotHash: { type: string }
+        provenance: { type: string }
+        policy: { type: string }
+        solverStatus: { type: string }
+        validationStatus: { type: string, enum: [NOT_PERFORMED, FAILED, PASS] }
+        independentlyValidated: { type: boolean }
+        horizonStart: { type: string, format: date-time }
+        horizonEnd: { type: string, format: date-time }
+        trains:
+          type: array
+          items: { $ref: '#/components/schemas/CalendarLane' }
+        resources:
+          type: array
+          items: { $ref: '#/components/schemas/CalendarLane' }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/CalendarEvent' }
+    CalendarLane:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+    CalendarEvent:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [TRIP, SERVICE] }
+        trainId: { type: string, format: uuid }
+        resourceId: { type: string, nullable: true }
+        label: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        source: { type: string }
+        reason: { type: string }
+        cycleCode: { type: string, nullable: true }
+        covers: { type: array, nullable: true, items: { type: string } }
+        releaseOdometerKm: { type: integer, nullable: true }
+        dueOdometerKm: { type: integer, nullable: true }
+        dueAt: { type: string, format: date-time, nullable: true }
     ApiError:
       type: object
       properties:

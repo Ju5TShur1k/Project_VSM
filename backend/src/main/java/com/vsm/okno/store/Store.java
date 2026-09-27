@@ -22,6 +22,7 @@ public class Store {
         public Instant createdAt;
         public String provenance;
         public List<Dto.Train> trains;
+        public volatile UUID sourceSnapshotId;
         // Injected failure kinds in order; the planning snapshot is derived from these.
         public List<String> failures = List.of();
     }
@@ -45,5 +46,9 @@ public class Store {
         public String approvedBy;
         public List<Dto.PlanEvent> events;
         public List<Dto.Validation> validations;
+        public String snapshotHash;
+        public String solverStatus;
+        public String validationStatus;
+        public Dto.PlanCalendar calendar;
     }
 }

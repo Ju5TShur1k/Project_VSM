@@ -25,6 +25,15 @@ export type Plan = {
   approvedBy: string | null
   events: PlanEvent[]
   validations: Validation[]
+  snapshotHash: string
+  validationStatus: 'PASS' | 'FAILED' | 'NOT_PERFORMED'
+}
+
+export type DemoSource = {
+  scenarioId: string
+  snapshotId: string
+  snapshotHash: string
+  provenance: string
 }
 
 export type Job = {
@@ -91,6 +100,14 @@ export const api = {
       body: '{}'
     }).then(json<{ scenarioId: string; warnings: string[]; provenance: string }>),
 
+  importDemoSource: () => post('/api/v1/demo/source').then(json<DemoSource>),
+
+  changeR1Arrival: (scenarioId: string, arrivalMinute: number) =>
+    post(`/api/v1/demo/scenarios/${scenarioId}/r1-arrival`, {
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ arrivalMinute })
+    }).then(json<DemoSource>),
+
   getTrains: (scenarioId: string) =>
     fetch(`/api/v1/scenarios/${scenarioId}/trains`).then(json<Train[]>),
 
@@ -119,6 +136,8 @@ export const api = {
   getJob: (id: string) => fetch(`/api/v1/planning-jobs/${id}`).then(json<Job>),
 
   getPlan: (id: string) => fetch(`/api/v1/plans/${id}`).then(json<Plan>),
+
+  getCalendar: (id: string) => fetch(`/api/v1/plans/${id}/calendar`).then(json<import('./calendar/PlanningCalendar').CalendarData>),
 
   // The approver is taken from the session server-side, so no actorId is sent.
   approve: (planId: string, expectedVersion: number, comment: string) =>

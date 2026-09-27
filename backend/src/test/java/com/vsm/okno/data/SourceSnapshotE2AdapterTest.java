@@ -3,6 +3,8 @@ package com.vsm.okno.data;
 import com.vsm.okno.planning.CpSatPlanner;
 import com.vsm.okno.planning.PlannerRequest;
 import com.vsm.okno.planning.PlannerResult;
+import com.vsm.okno.planning.PlanCalendarProjector;
+import com.vsm.okno.planning.MileageObligationGenerator;
 import com.vsm.okno.validation.IndependentIntervalAudit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -19,10 +21,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Connection;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /** Opt-in DB-to-solver contract check on a dedicated empty test database. */
 @SpringBootTest
@@ -41,6 +46,44 @@ class SourceSnapshotE2AdapterTest {
 
     @Autowired JdbcTemplate jdbc;
     @Autowired SourceSnapshotRepository snapshots;
+    @Autowired DemoSourceService demoSources;
+
+    @Test
+    @Transactional
+    void changingSourceTripCreatesNewHashAndMovesCalculatedCalendar() {
+        var first = demoSources.create();
+        var oldStored = snapshots.findById(first.snapshotId()).orElseThrow();
+        var before = new SourceSnapshotE2Adapter().project(oldStored);
+        var beforeCalendar = calendar(before);
+        assertEquals(50, before.snapshot().fixedTrips().stream()
+                .filter(t -> t.label().equals("R1")).findFirst().orElseThrow().endMinute());
+        assertEquals(before.snapshot().horizonStart().plusMinutes(50).toString(),
+                beforeCalendar.events().stream().filter(e -> e.kind().equals("SERVICE"))
+                        .findFirst().orElseThrow().startAt());
+
+        var changed = demoSources.changeR1Arrival(first.scenarioId(), 55);
+        assertNotEquals(first.snapshotHash(), changed.snapshotHash());
+        assertNotEquals(first.snapshotId(), changed.snapshotId());
+        var after = new SourceSnapshotE2Adapter().project(snapshots.findById(changed.snapshotId()).orElseThrow());
+        var afterCalendar = calendar(after);
+        assertEquals(changed.snapshotHash(), afterCalendar.snapshotHash());
+        assertEquals(after.snapshot().horizonStart().plusMinutes(55).toString(),
+                afterCalendar.events().stream().filter(e -> e.kind().equals("SERVICE"))
+                        .findFirst().orElseThrow().startAt());
+        assertEquals(50, new SourceSnapshotE2Adapter().project(
+                snapshots.findById(first.snapshotId()).orElseThrow()).snapshot().fixedTrips().stream()
+                .filter(t -> t.label().equals("R1")).findFirst().orElseThrow().endMinute());
+    }
+
+    private com.vsm.okno.dto.Dto.PlanCalendar calendar(MileageObligationGenerator.Projection projection) {
+        var source = projection.snapshot();
+        var result = new CpSatPlanner().plan(source, new PlannerRequest("1.0", source.scenarioId(),
+                source.snapshotHash(), PlannerRequest.Policy.BLOCKS_CP_SAT, 42, 5));
+        assertEquals(PlannerResult.SolverStatus.OPTIMAL, result.solverStatus());
+        var obligations = projection.obligations().stream().collect(Collectors.toMap(
+                MileageObligationGenerator.Obligation::blockId, Function.identity()));
+        return PlanCalendarProjector.project(source, result, obligations, "NOT_PERFORMED");
+    }
 
     @Test
     @Transactional

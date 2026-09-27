@@ -7,6 +7,7 @@ const data: CalendarData = {
   provenance: 'synthetic · ручной пример',
   policy: 'WHOLE_CYCLE_EDD',
   solverStatus: 'FEASIBLE (демонстрационный интервал)',
+  validationStatus: 'NOT_PERFORMED',
   independentlyValidated: false,
   horizonStart: '2028-07-01T00:00:00+03:00',
   horizonEnd: '2028-07-01T04:00:00+03:00',
@@ -34,7 +35,7 @@ const data: CalendarData = {
 
 export default function CalendarDemo() {
   return <>
-    <p className="muted">Демонстрация F2 E2: фиксированные рейсы и цельный цикл обслуживания. Данные не связаны с текущим API-сценарием.</p>
+    <p className="error">Ручной демонстрационный пример. Интервалы записаны в коде страницы и не связаны с API или текущим расчётом.</p>
     <PlanningCalendar data={data} />
   </>
 }

@@ -21,6 +21,9 @@ public final class Dto {
 
     public record ImportResponse(UUID scenarioId, List<String> warnings, String provenance) {}
 
+    public record DemoSource(UUID scenarioId, UUID snapshotId, String snapshotHash, String provenance) {}
+    public record TripTimeChange(int arrivalMinute) {}
+
     public record Scenario(UUID id, Instant createdAt, String provenance, int trainCount) {}
 
     public record JobRequest(
@@ -46,8 +49,22 @@ public final class Dto {
 
     public record Plan(
             UUID id, UUID scenarioId, int version, String status,
-            List<PlanEvent> events, List<Validation> validations, String approvedBy
+            List<PlanEvent> events, List<Validation> validations, String approvedBy,
+            String snapshotHash, String validationStatus
     ) {}
+
+    public record CalendarEvent(UUID id, String kind, UUID trainId, String resourceId,
+                                String label, String startAt, String endAt, String source,
+                                String reason, String cycleCode, List<String> covers,
+                                Long releaseOdometerKm, Long dueOdometerKm, String dueAt) {}
+
+    public record PlanCalendar(UUID scenarioId, String snapshotHash, String provenance,
+                               String policy, String solverStatus, String validationStatus,
+                               boolean independentlyValidated, String horizonStart,
+                               String horizonEnd, List<CalendarLane> trains,
+                               List<CalendarLane> resources, List<CalendarEvent> events) {}
+
+    public record CalendarLane(String id, String label) {}
 
     // actorId is ignored server-side: the approver is the authenticated user
     // (Plan.approvedBy). Kept only so existing clients don't break.
