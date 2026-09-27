@@ -1,0 +1,20 @@
+erDiagram
+    rule_set ||--o{ cycle_rule : contains
+    rule_set ||--o{ scenario : applies
+    scenario ||--o{ train : contains
+    train ||--o{ odometer_reading : measured
+    train ||--o{ fixed_trip : assigned
+    train ||--o{ service_event : serviced
+    service_event ||--o{ service_credit : credits
+    cycle_rule ||--o{ service_credit : covered
+    train ||--o{ cycle_baseline : initial_history
+    scenario ||--o{ resource : uses
+    resource ||--o{ resource_availability : available
+    resource ||--o{ cycle_resource : supports
+    cycle_rule ||--o{ cycle_resource : requires
+    train ||--o{ train_presence : located
+    train ||--o{ train_occupancy : occupied
+    train ||--o{ cleaning_counter : measured
+    train ||--o{ frozen_work : fixed
+    resource ||--o{ frozen_work : allocated
+    scenario ||--o{ scenario_snapshot : captured

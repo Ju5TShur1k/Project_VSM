@@ -22,14 +22,19 @@ public class Store {
         public Instant createdAt;
         public String provenance;
         public List<Dto.Train> trains;
+        // Injected failure kinds in order; the planning snapshot is derived from these.
+        public List<String> failures = List.of();
     }
 
+    // Written by the planner worker thread, read by HTTP threads: volatile, and
+    // status must be assigned last so readers that see SUCCEEDED also see the rest.
     public static class PlanningJob {
         public UUID id;
         public UUID scenarioId;
-        public String status;
-        public String solverStatus;
-        public UUID planId;
+        public volatile String status;
+        public volatile String solverStatus;
+        public volatile UUID planId;
+        public volatile String error;
     }
 
     public static class Plan {

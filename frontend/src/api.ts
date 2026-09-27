@@ -8,17 +8,32 @@ export type Train = {
 
 export type Validation = { code: string; severity: string; message: string }
 
+export type PlanEvent = {
+  id: string
+  trainId: string
+  kind: string
+  startAt: string
+  endAt: string
+  resourceIds: string[]
+}
+
 export type Plan = {
   id: string
   scenarioId: string
   version: number
   status: string
   approvedBy: string | null
-  events: unknown[]
+  events: PlanEvent[]
   validations: Validation[]
 }
 
-export type Job = { jobId: string; status: string; solverStatus: string | null; planId: string | null }
+export type Job = {
+  jobId: string
+  status: string
+  solverStatus: string | null
+  planId: string | null
+  error: string | null
+}
 
 export class Unauthorized extends Error {
   constructor() {
@@ -36,8 +51,18 @@ export class Conflict extends Error {
 async function json<T>(res: Response): Promise<T> {
   if (res.status === 401) throw new Unauthorized()
   if (res.status === 409) throw new Conflict()
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  if (!res.ok) throw new Error(await errorMessage(res))
   return res.json()
+}
+
+// API errors are {code,message,...}; fall back to the raw text for anything else.
+async function errorMessage(res: Response) {
+  const text = await res.text()
+  try {
+    return JSON.parse(text).message ?? text
+  } catch {
+    return `${res.status} ${text}`
+  }
 }
 
 // The API sets an XSRF-TOKEN cookie on its first response (even the 401 of

@@ -67,7 +67,7 @@ function Fleet({ username }: { username: string }) {
             Сценарий <code>{scenarioId}</code>
             {scenario.data && <> · {scenario.data.provenance}</>}
           </p>
-          <Planning key={scenarioId} scenarioId={scenarioId} onScenarioChange={setScenarioId} />
+          <Planning key={scenarioId} scenarioId={scenarioId} trains={trainsQuery.data} onScenarioChange={setScenarioId} />
         </>
       ) : (
         <button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>

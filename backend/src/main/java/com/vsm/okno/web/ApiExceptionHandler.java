@@ -21,6 +21,19 @@ public class ApiExceptionHandler {
                 .body(new Dto.ApiError("NOT_FOUND", ex.getMessage(), UUID.randomUUID().toString(), List.of()));
     }
 
+    @ExceptionHandler(PlanningService.InvalidRequestException.class)
+    public ResponseEntity<Dto.ApiError> invalid(PlanningService.InvalidRequestException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(new Dto.ApiError("INVALID_REQUEST", ex.getMessage(), UUID.randomUUID().toString(),
+                        List.of(new Dto.ErrorDetail(ex.field, ex.getMessage()))));
+    }
+
+    @ExceptionHandler(PlanningService.NotApprovableException.class)
+    public ResponseEntity<Dto.ApiError> notApprovable(PlanningService.NotApprovableException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(new Dto.ApiError("PLAN_NOT_APPROVABLE", ex.getMessage(), UUID.randomUUID().toString(), List.of()));
+    }
+
     @ExceptionHandler(PlanningService.VersionConflictException.class)
     public ResponseEntity<Dto.ApiError> conflict(PlanningService.VersionConflictException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

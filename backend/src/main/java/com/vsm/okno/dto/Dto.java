@@ -35,7 +35,8 @@ public final class Dto {
     // status is the job's lifecycle (QUEUED/RUNNING/SUCCEEDED/...), solverStatus
     // is the CP-SAT outcome (FEASIBLE/INFEASIBLE/...) — SUCCEEDED never implies
     // a usable plan, the two are independent per the spec.
-    public record JobStatus(UUID jobId, String status, String solverStatus, UUID planId) {}
+    // error is set only when status is FAILED (planner crash / invalid input).
+    public record JobStatus(UUID jobId, String status, String solverStatus, UUID planId, String error) {}
 
     public record PlanEvent(
             UUID id, UUID trainId, String kind, String startAt, String endAt, List<String> resourceIds
