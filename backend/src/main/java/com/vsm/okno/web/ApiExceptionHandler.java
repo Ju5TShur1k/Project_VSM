@@ -40,4 +40,10 @@ public class ApiExceptionHandler {
                 .body(new Dto.ApiError("VERSION_CONFLICT", "current version is " + ex.currentVersion,
                         UUID.randomUUID().toString(), List.of()));
     }
+
+    @ExceptionHandler(PlanningService.IdempotencyConflictException.class)
+    public ResponseEntity<Dto.ApiError> conflict(PlanningService.IdempotencyConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new Dto.ApiError("IDEMPOTENCY_KEY_REUSED", ex.getMessage(), UUID.randomUUID().toString(), List.of()));
+    }
 }

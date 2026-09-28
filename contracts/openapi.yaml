@@ -185,13 +185,19 @@ paths:
       description: >
         Queues the job and returns immediately (status QUEUED); the solver runs on
         a worker thread. Poll GET /planning-jobs/{id} until status is terminal.
-        A repeated idempotencyKey returns the existing job.
+        A repeated idempotencyKey with the SAME request body returns the existing
+        job; the same key with a DIFFERENT body is 409 IDEMPOTENCY_KEY_REUSED.
       responses:
         '202':
           description: Accepted
           content:
             application/json:
               schema: { $ref: '#/components/schemas/JobStatus' }
+        '409':
+          description: idempotencyKey reused with a different request body
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
         '422':
           description: Invalid policy / timeLimitSec (1..300) / seed / frozenUntil
           content:

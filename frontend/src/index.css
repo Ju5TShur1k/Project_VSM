@@ -1,25 +1,28 @@
+/* РЖД: фирменный красный + графит, см. corporate identity. */
 :root {
-  --bg: #fafafa;
+  --bg: #f7f7f8;
   --surface: #fff;
-  --text: #18181b;
-  --muted: #71717a;
-  --line: #e4e4e7;
-  --accent: #2563eb;
+  --text: #1a1a1a;
+  --muted: #6b6b6f;
+  --line: #e2e2e4;
+  --accent: #c8102e;
   --accent-text: #fff;
+  --brand-dark: #2b2b2f;
   --ok: #16a34a;
   --warn: #d97706;
-  --err: #dc2626;
+  --err: #b3001b;
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0b0d;
-    --surface: #141417;
+    --bg: #121214;
+    --surface: #1c1c1f;
     --text: #f4f4f5;
     --muted: #a1a1aa;
-    --line: #27272a;
-    --accent: #3b82f6;
+    --line: #303034;
+    --accent: #e8354f;
+    --brand-dark: #0d0d0f;
   }
 }
 
@@ -31,6 +34,7 @@ body {
   color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  border-top: 4px solid var(--accent);
 }
 
 main { max-width: 960px; margin: 0 auto; padding: 48px 20px; }

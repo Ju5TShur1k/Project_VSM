@@ -16,6 +16,9 @@ public class Store {
     public final Map<UUID, PlanningJob> jobs = new ConcurrentHashMap<>();
     public final Map<UUID, Plan> plans = new ConcurrentHashMap<>();
     public final Map<String, UUID> jobIdempotency = new ConcurrentHashMap<>();
+    // idempotencyKey -> hash of the request content that created it (F1-2: same
+    // key + different content must conflict, not silently return the old job).
+    public final Map<String, String> jobIdempotencyContent = new ConcurrentHashMap<>();
 
     public static class Scenario {
         public UUID id;

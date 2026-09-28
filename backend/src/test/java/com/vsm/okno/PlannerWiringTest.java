@@ -70,6 +70,17 @@ class PlannerWiringTest {
         assertFalse(api.getJson("/api/v1/scenarios/" + scenario).isEmpty());
     }
 
+    @Test
+    void reusingAnIdempotencyKeyWithDifferentContentConflicts() throws Exception {
+        PlannerApi api = new PlannerApi(mvc);
+        String scenarioA = api.importScenario();
+        String scenarioB = api.importScenario();
+
+        api.postJson("/api/v1/planning-jobs", PlannerApi.jobBody(scenarioA, "shared-key"), 202);
+        JsonNode conflict = api.postJson("/api/v1/planning-jobs", PlannerApi.jobBody(scenarioB, "shared-key"), 409);
+        assertEquals("IDEMPOTENCY_KEY_REUSED", conflict.get("code").asText());
+    }
+
     static long earliestStartMinutes(JsonNode plan, String resource) {
         long earliest = Long.MAX_VALUE;
         for (JsonNode event : plan.get("events")) {

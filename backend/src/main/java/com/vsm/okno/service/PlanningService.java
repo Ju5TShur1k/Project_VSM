@@ -145,10 +145,21 @@ public class PlanningService {
         }
         int frozenMinute = frozenMinute(req.frozenUntil());
 
-        UUID jobId = req.idempotencyKey() == null
-                ? submit(scenario, policy, (int) req.seed(), req.timeLimitSec(), frozenMinute)
-                : store.jobIdempotency.computeIfAbsent(req.idempotencyKey(),
-                        k -> submit(scenario, policy, (int) req.seed(), req.timeLimitSec(), frozenMinute));
+        UUID jobId;
+        if (req.idempotencyKey() == null) {
+            jobId = submit(scenario, policy, (int) req.seed(), req.timeLimitSec(), frozenMinute);
+        } else {
+            // Same key must mean the same request. A different one is a client bug
+            // (key reuse), never silently answered with someone else's old result.
+            String content = String.join("|", req.scenarioId().toString(), policy.name(),
+                    Long.toString(req.seed()), Integer.toString(req.timeLimitSec()), Integer.toString(frozenMinute));
+            String existing = store.jobIdempotencyContent.putIfAbsent(req.idempotencyKey(), content);
+            if (existing != null && !existing.equals(content)) {
+                throw new IdempotencyConflictException(req.idempotencyKey());
+            }
+            jobId = store.jobIdempotency.computeIfAbsent(req.idempotencyKey(),
+                    k -> submit(scenario, policy, (int) req.seed(), req.timeLimitSec(), frozenMinute));
+        }
         return toJobStatus(store.jobs.get(jobId));
     }
 
@@ -366,6 +377,12 @@ public class PlanningService {
     public static class NotApprovableException extends RuntimeException {
         public NotApprovableException(String message) {
             super(message);
+        }
+    }
+
+    public static class IdempotencyConflictException extends RuntimeException {
+        public IdempotencyConflictException(String key) {
+            super("idempotencyKey " + key + " was already used with a different request");
         }
     }
 }
