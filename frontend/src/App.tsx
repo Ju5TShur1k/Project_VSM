@@ -39,12 +39,6 @@ function Fleet({ username }: { username: string }) {
   // /auth/me, which now 401s and sends us back to the login screen.
   const logout = useMutation({ mutationFn: api.logout, onSuccess: () => qc.resetQueries() })
 
-  const scenario = useQuery({
-    queryKey: ['scenario', scenarioId],
-    queryFn: () => api.getScenario(scenarioId!),
-    enabled: !!scenarioId
-  })
-
   const trainsQuery = useQuery<Train[]>({
     queryKey: ['trains', scenarioId],
     queryFn: () => api.getTrains(scenarioId!),
@@ -66,15 +60,9 @@ function Fleet({ username }: { username: string }) {
       </div>
 
       <p className="demo-label">Демонстрационные данные</p>
-      <p className="muted">Исходные факты сохраняются в PostgreSQL. Каждый расчёт получает неизменяемый snapshot; рейсы остаются фиксированными.</p>
 
       {source ? (
         <>
-          <p className="muted">
-            Сценарий <code>{scenarioId}</code>
-            {scenario.data && <> · {scenario.data.provenance}</>}
-          </p>
-          <p className="muted">Сохранённый snapshot <code>{source.snapshotId}</code> · hash <code>{source.snapshotHash}</code></p>
           <section className="card pad">
             <h2>Исходные данные · рейс R1</h2>
             <p className="muted">Прибытие R1 влияет на доступное время обслуживания перед рейсом R2. Изменение создаёт новый snapshot; предыдущий остаётся в базе.</p>

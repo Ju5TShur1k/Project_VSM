@@ -104,8 +104,8 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
           {selected.resourceId && <><dt>Ресурс</dt><dd>{data.resources.find((resource) => resource.id === selected.resourceId)?.label ?? selected.resourceId}</dd></>}
           {selected.cycleCode && <><dt>Цикл</dt><dd>{selected.cycleCode}</dd></>}
           {Boolean(selected.covers?.length) && <><dt>Покрывает</dt><dd>{selected.covers?.join(', ')}</dd></>}
-          {selected.releaseOdometerKm !== undefined && <><dt>Пробег от</dt><dd>{selected.releaseOdometerKm.toLocaleString('ru-RU')} км</dd></>}
-          {selected.dueOdometerKm !== undefined && <><dt>Пробег до</dt><dd>{selected.dueOdometerKm.toLocaleString('ru-RU')} км</dd></>}
+          {selected.releaseOdometerKm != null && <><dt>Пробег от</dt><dd>{selected.releaseOdometerKm.toLocaleString('ru-RU')} км</dd></>}
+          {selected.dueOdometerKm != null && <><dt>Пробег до</dt><dd>{selected.dueOdometerKm.toLocaleString('ru-RU')} км</dd></>}
           {selected.dueAt && <><dt>Срок в сценарии</dt><dd>{moscow(selected.dueAt)}</dd></>}
           <dt>Источник</dt><dd>{selected.source}</dd>
           <dt>Причина окна</dt><dd>{selected.reason}</dd>
