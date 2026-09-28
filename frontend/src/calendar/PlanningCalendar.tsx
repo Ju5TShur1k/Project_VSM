@@ -24,6 +24,7 @@ export type CalendarData = {
   provenance: string
   policy: string
   solverStatus: string
+  validationStatus: string
   independentlyValidated: boolean
   horizonStart: string
   horizonEnd: string
@@ -68,7 +69,7 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
         <span className="badge DRAFT">{data.provenance}</span>
       </div>
       <p className="muted">Сценарий <code>{data.scenarioId}</code> · snapshot <code>{data.snapshotHash}</code> · {data.policy} · {data.solverStatus}</p>
-      {!data.independentlyValidated && <p className="error">Независимая проверка D2 ещё не выполнена. Календарь нельзя утверждать.</p>}
+      {!data.independentlyValidated && <p className="error">Проверка D2: {data.validationStatus}. Календарь нельзя утверждать.</p>}
       <div className="calendar-scroll">
         <div className="calendar-grid" style={{ width: Math.max(900, Math.min(8000, hourCount * 40)) }}>
           <div className="calendar-axis">

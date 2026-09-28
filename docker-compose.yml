@@ -9,13 +9,24 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U okno -d okno"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   api:
     build: ./backend
     ports:
       - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: database
+      DB_URL: jdbc:postgresql://postgres:5432/okno
+      DB_USER: okno
+      DB_PASSWORD: okno
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   web:
     build: ./frontend

@@ -1,11 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Conflict, Plan, Train } from './api'
-
-const FAILURES = [
-  ['MACHINE_DOWN', 'Станок недоступен на 12 часов'],
-  ['UNPLANNED_INSPECTION', 'Внеплановый осмотр']
-] as const
+import PlanningCalendar from './calendar/PlanningCalendar'
 
 // Only these solver outcomes yield a plan that may be approved (ТЗ: UNKNOWN /
 // INFEASIBLE / MODEL_INVALID never do).
@@ -16,6 +12,7 @@ const APPROVABLE = ['OPTIMAL', 'FEASIBLE']
 function blocker(plan: Plan, solver: string): string | null {
   if (plan.status === 'APPROVED') return `Уже согласован пользователем ${plan.approvedBy}`
   if (!APPROVABLE.includes(solver)) return `Расчёт не дал допустимого плана (${solver || 'нет статуса'})`
+  if (plan.validationStatus !== 'PASS') return `Проверка D2: ${plan.validationStatus}`
   if (plan.validations.some((v) => v.severity === 'CRITICAL')) return 'Есть критические нарушения'
   return null
 }
@@ -33,22 +30,14 @@ const fmt = (iso: string) =>
 // version, which remounts this and drops the now-outdated plan.
 export default function Planning({
   scenarioId,
-  trains,
-  onScenarioChange
+  trains
 }: {
   scenarioId: string
   trains: Train[] | undefined
-  onScenarioChange: (id: string) => void
 }) {
   const qc = useQueryClient()
   const [jobId, setJobId] = useState<string | null>(null)
-  const [failure, setFailure] = useState<string>(FAILURES[0][0])
   const [comment, setComment] = useState('')
-
-  const fail = useMutation({
-    mutationFn: () => api.addEvent(scenarioId, failure, FAILURES.find((f) => f[0] === failure)![1]),
-    onSuccess: (r) => onScenarioChange(r.newScenarioId)
-  })
 
   const start = useMutation({ mutationFn: () => api.startJob(scenarioId), onSuccess: (j) => setJobId(j.jobId) })
 
@@ -66,6 +55,7 @@ export default function Planning({
 
   const planId = job.data?.planId
   const plan = useQuery({ queryKey: ['plan', planId], queryFn: () => api.getPlan(planId!), enabled: !!planId })
+  const calendar = useQuery({ queryKey: ['calendar', planId], queryFn: () => api.getCalendar(planId!), enabled: !!planId })
 
   const approve = useMutation({
     mutationFn: () => api.approve(planId!, plan.data!.version, comment),
@@ -79,28 +69,23 @@ export default function Planning({
   const trainName = new Map(trains?.map((t) => [t.id, t.externalId]))
   const solver = job.data?.solverStatus ?? ''
   const blocked = p ? blocker(p, solver) : null
-  const error = [fail, start, job, plan, approve].find((q) => q.isError)?.error
+  const error = [start, job, plan, calendar, approve].find((q) => q.isError)?.error
 
   return (
     <section className="card pad">
-      <h2>Сбой и согласование</h2>
+      <h2>Расчёт планировщика → проверка D2 → календарь</h2>
 
       <div className="row">
-        <select value={failure} onChange={(e) => setFailure(e.target.value)} aria-label="Тип сбоя">
-          {FAILURES.map(([k, label]) => (
-            <option key={k} value={k}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <button className="secondary" onClick={() => fail.mutate()} disabled={fail.isPending}>
-          Ввести сбой
-        </button>
         <button onClick={() => start.mutate()} disabled={running}>
           {running ? 'Расчёт…' : p ? 'Пересчитать план' : 'Рассчитать план'}
         </button>
       </div>
-      <p className="muted">Сбой добавляется в сценарий как новая версия — реальные системы не затрагиваются. После него нужен пересчёт.</p>
+      <p className="muted">Расчёт использует hash сохранённого snapshot. Результат и календарь относятся к этому hash.</p>
+      <dl className="kv">
+        <dt>Задание</dt><dd>{job.data?.status ?? (jobId ? 'Загрузка…' : 'Не запускалось')}</dd>
+        <dt>Расчёт</dt><dd>{job.data?.solverStatus ?? 'Не выполнялся'}</dd>
+        <dt>Проверка D2</dt><dd>{p?.validationStatus ?? 'Не проводилась'}</dd>
+      </dl>
 
       {error && (
         <p className="error" role="alert">
@@ -123,6 +108,8 @@ export default function Planning({
             <dd>
               <span className={`badge ${p.status}`}>{p.status}</span>
             </dd>
+            <dt>Hash snapshot результата</dt>
+            <dd><code>{p.snapshotHash}</code></dd>
             <dt>Солвер</dt>
             <dd>
               <span className={`badge ${solver}`}>{solver || '—'}</span>
@@ -163,9 +150,9 @@ export default function Planning({
             </details>
           )}
 
-          <h3>Нарушения</h3>
+          <h3>Результат проверки и диагностика</h3>
           {p.validations.length === 0 ? (
-            <p className="muted">Нарушений нет.</p>
+            <p className="muted">Критических замечаний нет. Статус D2: {p.validationStatus}.</p>
           ) : (
             <ul className="viol">
               {p.validations.map((v, i) => (
@@ -196,6 +183,7 @@ export default function Planning({
             </a>
           </form>
           {blocked && <p className="muted">{blocked}</p>}
+          {calendar.data && <PlanningCalendar data={calendar.data} />}
         </>
       )}
     </section>

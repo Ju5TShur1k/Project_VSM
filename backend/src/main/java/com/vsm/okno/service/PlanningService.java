@@ -1,13 +1,19 @@
 package com.vsm.okno.service;
 
 import com.vsm.okno.dto.Dto;
+import com.vsm.okno.data.DemoSourceService;
+import com.vsm.okno.data.SourceSnapshotE2Adapter;
+import com.vsm.okno.data.SourceSnapshotRepository;
 import com.vsm.okno.planning.CpSatPlanner;
 import com.vsm.okno.planning.EarliestDueDatePlanner;
+import com.vsm.okno.planning.MileageObligationGenerator;
+import com.vsm.okno.planning.PlanCalendarProjector;
 import com.vsm.okno.planning.Planner;
 import com.vsm.okno.planning.PlannerRequest;
 import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.planning.ScenarioSnapshot;
 import com.vsm.okno.store.Store;
+import com.vsm.okno.validation.IndependentIntervalAudit;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -19,6 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -35,6 +43,8 @@ public class PlanningService {
 
     private final Store store = new Store();
     private final PlanValidator validator;
+    private final DemoSourceService demoSource;
+    private final SourceSnapshotRepository sourceSnapshots;
 
     private final Planner cpSat = new CpSatPlanner();
     private final Map<PlannerRequest.Policy, Planner> planners = Map.of(
@@ -51,8 +61,12 @@ public class PlanningService {
         return t;
     });
 
-    public PlanningService(ObjectProvider<PlanValidator> validators) {
+    public PlanningService(ObjectProvider<PlanValidator> validators,
+                           ObjectProvider<DemoSourceService> demoSources,
+                           ObjectProvider<SourceSnapshotRepository> sourceRepositories) {
         this.validator = validators.getIfAvailable(() -> NOT_PERFORMED);
+        this.demoSource = demoSources.getIfAvailable();
+        this.sourceSnapshots = sourceRepositories.getIfAvailable();
     }
 
     @PreDestroy
@@ -77,6 +91,36 @@ public class PlanningService {
         store.scenarios.put(scenario.id, scenario);
 
         return new Dto.ImportResponse(scenario.id, warnings, scenario.provenance);
+    }
+
+    public Dto.DemoSource importDemoSource() {
+        if (demoSource == null) throw new InvalidRequestException("database", "profile is required for the saved demo source");
+        var captured = demoSource.create();
+        Store.Scenario scenario = new Store.Scenario();
+        scenario.id = captured.scenarioId();
+        scenario.createdAt = Instant.now();
+        scenario.provenance = "Демонстрационные данные";
+        scenario.trains = captured.trains();
+        scenario.sourceSnapshotId = captured.snapshotId();
+        store.scenarios.put(scenario.id, scenario);
+        return demoResponse(captured);
+    }
+
+    public Dto.DemoSource changeDemoR1Arrival(UUID scenarioId, int arrivalMinute) {
+        if (demoSource == null) throw new InvalidRequestException("database", "profile is required");
+        if (arrivalMinute < 50 || arrivalMinute > 60) {
+            throw new InvalidRequestException("arrivalMinute", "must be between 50 and 60");
+        }
+        Store.Scenario scenario = require(store.scenarios, scenarioId, "scenario");
+        if (scenario.sourceSnapshotId == null) throw new InvalidRequestException("scenario", "is not a saved demo source");
+        var captured = demoSource.changeR1Arrival(scenarioId, arrivalMinute);
+        scenario.sourceSnapshotId = captured.snapshotId();
+        return demoResponse(captured);
+    }
+
+    private static Dto.DemoSource demoResponse(DemoSourceService.Captured captured) {
+        return new Dto.DemoSource(captured.scenarioId(), captured.snapshotId(),
+                captured.snapshotHash(), "Демонстрационные данные");
     }
 
     public Dto.Scenario getScenario(UUID id) {
@@ -114,22 +158,28 @@ public class PlanningService {
         job.scenarioId = scenario.id;
         job.status = "QUEUED";
         store.jobs.put(job.id, job);
-        worker.execute(() -> run(job, scenario, policy, seed, timeLimitSec, frozenMinute));
+        UUID snapshotId = scenario.sourceSnapshotId;
+        worker.execute(() -> run(job, scenario, snapshotId, policy, seed, timeLimitSec, frozenMinute));
         return job.id;
     }
 
     // Job status is the lifecycle; solverStatus is what the solver concluded. A
     // SUCCEEDED job can carry INFEASIBLE, and either way the plan still needs validation.
-    private void run(Store.PlanningJob job, Store.Scenario scenario, PlannerRequest.Policy policy,
+    private void run(Store.PlanningJob job, Store.Scenario scenario, UUID snapshotId, PlannerRequest.Policy policy,
                      int seed, int timeLimitSec, int frozenMinute) {
         job.status = "RUNNING";
         try {
-            ScenarioSnapshot snapshot = SyntheticSnapshot.of(scenario.id, scenario.trains, scenario.failures);
+            MileageObligationGenerator.Projection projection = snapshotId == null ? null
+                    : new SourceSnapshotE2Adapter().project(sourceSnapshots.findById(snapshotId)
+                    .orElseThrow(() -> new NotFoundException("snapshot not found: " + snapshotId)));
+            ScenarioSnapshot snapshot = projection == null
+                    ? SyntheticSnapshot.of(scenario.id, scenario.trains, scenario.failures)
+                    : projection.snapshot();
             PlannerRequest request = new PlannerRequest(frozenMinute > 0 ? "1.1" : "1.0", scenario.id,
                     snapshot.snapshotHash(), policy, seed, timeLimitSec, frozenMinute);
             PlannerResult result = planners.get(policy).plan(snapshot, request);
 
-            Store.Plan plan = toPlan(scenario.id, snapshot, result);
+            Store.Plan plan = toPlan(scenario.id, snapshot, result, projection);
             store.plans.put(plan.id, plan);
             job.planId = plan.id;
             job.solverStatus = result.solverStatus().name();
@@ -140,12 +190,15 @@ public class PlanningService {
         }
     }
 
-    private Store.Plan toPlan(UUID scenarioId, ScenarioSnapshot snapshot, PlannerResult result) {
+    private Store.Plan toPlan(UUID scenarioId, ScenarioSnapshot snapshot, PlannerResult result,
+                              MileageObligationGenerator.Projection projection) {
         Store.Plan plan = new Store.Plan();
         plan.id = UUID.randomUUID();
         plan.scenarioId = scenarioId;
         plan.version = 0;
         plan.status = "DRAFT";
+        plan.snapshotHash = snapshot.snapshotHash();
+        plan.solverStatus = result.solverStatus().name();
         plan.events = result.blocks().stream()
                 .map(b -> new Dto.PlanEvent(b.blockId(), b.trainId(), "SERVICE_BLOCK",
                         DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(b.startAt()),
@@ -156,8 +209,17 @@ public class PlanningService {
         // No admissible plan (INFEASIBLE/UNKNOWN/...) is itself a blocking finding.
         List<Dto.Validation> validations = new ArrayList<>();
         result.diagnostics().forEach(d -> validations.add(new Dto.Validation(d.code(), "CRITICAL", d.message())));
-        validations.addAll(validator.validate(snapshot, result));
+        List<Dto.Validation> intervalFindings = IndependentIntervalAudit.check(snapshot, result);
+        validations.addAll(intervalFindings);
+        List<Dto.Validation> d2Findings = validator.validate(snapshot, result);
+        validations.addAll(d2Findings);
+        plan.validationStatus = validator == NOT_PERFORMED ? "NOT_PERFORMED"
+                : validations.stream().anyMatch(v -> "CRITICAL".equals(v.severity())) ? "FAILED" : "PASS";
         plan.validations = List.copyOf(validations);
+        Map<UUID, MileageObligationGenerator.Obligation> obligations = projection == null ? Map.of()
+                : projection.obligations().stream().collect(Collectors.toMap(
+                MileageObligationGenerator.Obligation::blockId, Function.identity()));
+        plan.calendar = PlanCalendarProjector.project(snapshot, result, obligations, plan.validationStatus);
         return plan;
     }
 
@@ -169,12 +231,20 @@ public class PlanningService {
         return toPlanDto(require(store.plans, id, "plan"));
     }
 
+    public Dto.PlanCalendar getCalendar(UUID id) {
+        return require(store.plans, id, "plan").calendar;
+    }
+
     public Dto.Plan approve(UUID planId, Dto.ApproveRequest req, String actor) {
         Store.Plan plan = require(store.plans, planId, "plan");
         // Serialized so two concurrent approvals can't both pass the version check.
         synchronized (plan) {
             if (plan.version != req.expectedVersion()) {
                 throw new VersionConflictException(plan.version);
+            }
+            if (!"PASS".equals(plan.validationStatus)
+                    || (!"OPTIMAL".equals(plan.solverStatus) && !"FEASIBLE".equals(plan.solverStatus))) {
+                throw new NotApprovableException("independent D2 validation must pass and solver must be feasible");
             }
             List<String> critical = plan.validations.stream()
                     .filter(v -> "CRITICAL".equals(v.severity())).map(Dto.Validation::code).toList();
@@ -200,6 +270,9 @@ public class PlanningService {
 
     public UUID newScenarioVersion(UUID scenarioId, Dto.ScenarioEvent event) {
         Store.Scenario base = require(store.scenarios, scenarioId, "scenario");
+        if (base.sourceSnapshotId != null) {
+            throw new InvalidRequestException("scenario", "saved demo source does not support injected failures");
+        }
         if (event.kind() == null || !SyntheticSnapshot.FAILURE_KINDS.contains(event.kind())) {
             throw new InvalidRequestException("kind", "must be one of " + SyntheticSnapshot.FAILURE_KINDS);
         }
@@ -241,7 +314,8 @@ public class PlanningService {
     }
 
     private Dto.Plan toPlanDto(Store.Plan plan) {
-        return new Dto.Plan(plan.id, plan.scenarioId, plan.version, plan.status, plan.events, plan.validations, plan.approvedBy);
+        return new Dto.Plan(plan.id, plan.scenarioId, plan.version, plan.status, plan.events,
+                plan.validations, plan.approvedBy, plan.snapshotHash, plan.validationStatus);
     }
 
     private static List<Dto.Train> syntheticFleet(int count) {
