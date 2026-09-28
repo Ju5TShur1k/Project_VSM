@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, DemoSource, Train, Unauthorized } from './api'
+import { api, CaseDataset, DemoSource, Train, Unauthorized } from './api'
 import Login from './Login'
 import Planning from './Planning'
 import CalendarDemo from './calendar/CalendarDemo'
@@ -23,11 +23,22 @@ function Fleet({ username }: { username: string }) {
   const qc = useQueryClient()
   const [source, setSource] = useState<DemoSource | null>(null)
   const [arrivalMinute, setArrivalMinute] = useState(50)
+  const [dataset, setDataset] = useState<'TOY' | CaseDataset['dataset']>('E2_6')
+  const [caseData, setCaseData] = useState<CaseDataset | null>(null)
+  const [shortDemo, setShortDemo] = useState(false)
   const scenarioId = source?.scenarioId ?? null
 
   const importMutation = useMutation({
-    mutationFn: api.importDemoSource,
-    onSuccess: (data) => { setSource(data); setArrivalMinute(50) }
+    mutationFn: async () => {
+      if (dataset === 'TOY') return { source: await api.importDemoSource(), details: null }
+      const details = await api.importCaseDataset(dataset)
+      return { source: details.source, details }
+    },
+    onSuccess: ({ source: loaded, details }) => {
+      setSource(loaded); setCaseData(details); setShortDemo(details === null); setArrivalMinute(50)
+      void qc.invalidateQueries({ queryKey: ['scenario', loaded.scenarioId] })
+      void qc.invalidateQueries({ queryKey: ['trains', loaded.scenarioId] })
+    }
   })
 
   const changeTrip = useMutation({
@@ -67,6 +78,23 @@ function Fleet({ username }: { username: string }) {
 
       <p className="demo-label">Демонстрационные данные</p>
       <p className="muted">Исходные факты сохраняются в PostgreSQL. Каждый расчёт получает неизменяемый snapshot; рейсы остаются фиксированными.</p>
+      <section className="card pad">
+        <h2>Набор исходных данных</h2>
+        <div className="row">
+          <label>Сценарий
+            <select value={dataset} onChange={(e) => setDataset(e.target.value as typeof dataset)}>
+              <option value="E2_6">6 составов · 252 рейса · нормативы IS100/IS200 из кейса</option>
+              <option value="BLOCKED6">6 составов · путь недоступен после первых суток</option>
+              <option value="FULL43">43 состава · полный набор исходных данных E3</option>
+              <option value="TOY">Короткий пример · один состав и изменение R1</option>
+            </select>
+          </label>
+          <button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
+            {importMutation.isPending ? 'Загрузка…' : 'Загрузить выбранный набор'}
+          </button>
+        </div>
+        <p className="muted">Пробеги, история и расписание модельные. Нормативные длительности и расстояние 670 км взяты из кейса.</p>
+      </section>
 
       {source ? (
         <>
@@ -75,6 +103,11 @@ function Fleet({ username }: { username: string }) {
             {scenario.data && <> · {scenario.data.provenance}</>}
           </p>
           <p className="muted">Сохранённый snapshot <code>{source.snapshotId}</code> · hash <code>{source.snapshotHash}</code></p>
+          {caseData && <section className="card pad">
+            <p><strong>{caseData.trainCount} составов · {caseData.tripCount} рейсов · горизонт 14 суток</strong></p>
+            {caseData.warnings.map((warning) => <p className="muted" key={warning}>{warning}</p>)}
+          </section>}
+          {shortDemo && <>
           <section className="card pad">
             <h2>Исходные данные · рейс R1</h2>
             <p className="muted">Прибытие R1 влияет на доступное время обслуживания перед рейсом R2. Изменение создаёт новый snapshot; предыдущий остаётся в базе.</p>
@@ -90,13 +123,12 @@ function Fleet({ username }: { username: string }) {
             </div>
             {changeTrip.isError && <p className="error">{changeTrip.error.message}</p>}
           </section>
-          <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data} />
+          </>}
+          {caseData?.planningSupported !== false
+            ? <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data} />
+            : <p className="muted">Полный парк сохранён для интеграции E3. Расчёт станет доступен после подключения резерва, уборки и закреплённых работ; для проверки календаря выберите набор из 6 составов.</p>}
         </>
-      ) : (
-        <button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
-          {importMutation.isPending ? 'Загрузка…' : 'Загрузить демонстрационные исходные данные'}
-        </button>
-      )}
+      ) : null}
 
       {importMutation.isError && <p className="error">Ошибка: {importMutation.error.message}</p>}
       {trainsQuery.isLoading && <p className="muted">Загрузка парка…</p>}

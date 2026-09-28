@@ -36,6 +36,15 @@ export type DemoSource = {
   provenance: string
 }
 
+export type CaseDataset = {
+  source: DemoSource
+  dataset: 'FULL43' | 'E2_6' | 'BLOCKED6'
+  trainCount: number
+  tripCount: number
+  planningSupported: boolean
+  warnings: string[]
+}
+
 export type Job = {
   jobId: string
   status: string
@@ -101,6 +110,8 @@ export const api = {
     }).then(json<{ scenarioId: string; warnings: string[]; provenance: string }>),
 
   importDemoSource: () => post('/api/v1/demo/source').then(json<DemoSource>),
+  importCaseDataset: (dataset: CaseDataset['dataset']) =>
+    post(`/api/v1/demo/case-source?dataset=${dataset}`).then(json<CaseDataset>),
 
   changeR1Arrival: (scenarioId: string, arrivalMinute: number) =>
     post(`/api/v1/demo/scenarios/${scenarioId}/r1-arrival`, {

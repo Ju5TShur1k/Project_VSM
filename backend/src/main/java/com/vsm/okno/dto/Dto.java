@@ -22,6 +22,8 @@ public final class Dto {
     public record ImportResponse(UUID scenarioId, List<String> warnings, String provenance) {}
 
     public record DemoSource(UUID scenarioId, UUID snapshotId, String snapshotHash, String provenance) {}
+    public record CaseDataset(DemoSource source, String dataset, int trainCount, int tripCount,
+                              boolean planningSupported, List<String> warnings) {}
     public record TripTimeChange(int arrivalMinute) {}
 
     public record Scenario(UUID id, Instant createdAt, String provenance, int trainCount) {}

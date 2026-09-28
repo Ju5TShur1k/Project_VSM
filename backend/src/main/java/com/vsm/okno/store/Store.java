@@ -26,6 +26,7 @@ public class Store {
         public String provenance;
         public List<Dto.Train> trains;
         public volatile UUID sourceSnapshotId;
+        public String planningUnsupportedReason;
         // Injected failure kinds in order; the planning snapshot is derived from these.
         public List<String> failures = List.of();
     }
