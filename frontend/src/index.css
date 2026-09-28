@@ -1,29 +1,17 @@
-/* РЖД: фирменный красный + графит, см. corporate identity. */
+/* РЖД: фирменный красный, белый фон, графит. Только светлая тема, как у сайтов РЖД. */
 :root {
-  --bg: #f7f7f8;
+  --bg: #f2f2f2;
   --surface: #fff;
-  --text: #1a1a1a;
+  --text: #1f1f1f;
   --muted: #6b6b6f;
-  --line: #e2e2e4;
-  --accent: #c8102e;
+  --line: #dcdcdc;
+  --accent: #e21a1a;
+  --accent-dark: #b31212;
   --accent-text: #fff;
-  --brand-dark: #2b2b2f;
-  --ok: #16a34a;
-  --warn: #d97706;
-  --err: #b3001b;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121214;
-    --surface: #1c1c1f;
-    --text: #f4f4f5;
-    --muted: #a1a1aa;
-    --line: #303034;
-    --accent: #e8354f;
-    --brand-dark: #0d0d0f;
-  }
+  --ok: #1a7f37;
+  --warn: #b45309;
+  --err: #c8102e;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -34,10 +22,22 @@ body {
   color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
-  border-top: 4px solid var(--accent);
 }
 
-main { max-width: 960px; margin: 0 auto; padding: 48px 20px; }
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px max(20px, calc((100% - 960px) / 2 + 20px));
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.top strong { font-size: 20px; letter-spacing: 0.02em; margin-right: 14px; }
+.top span { opacity: 0.9; font-size: 14px; }
+.top button.link { color: var(--accent-text); text-decoration: underline; }
+
+main { max-width: 960px; margin: 0 auto; padding: 24px 20px 48px; }
 
 h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
 h1 span { color: var(--muted); font-weight: 400; }
@@ -50,7 +50,7 @@ button {
   margin: 20px 0;
   padding: 9px 16px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--accent);
   color: var(--accent-text);
   font: inherit;
@@ -58,15 +58,16 @@ button {
   cursor: pointer;
   transition: opacity 0.15s;
 }
-button:hover:not(:disabled) { opacity: 0.88; }
-button:disabled { opacity: 0.5; cursor: progress; }
+button:hover:not(:disabled) { background: var(--accent-dark); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .card {
   margin-top: 20px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-top: 3px solid var(--accent);
+  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -96,15 +97,17 @@ label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color:
 input, select {
   padding: 9px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: 4px;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
 }
 input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-button.link { margin: 0; padding: 0; background: none; color: var(--accent); font-weight: 400; }
+button.link, button.link:hover:not(:disabled) { margin: 0; padding: 0; background: none; color: var(--accent); font-weight: 400; }
 
-h2 { margin: 0 0 16px; font-size: 15px; font-weight: 600; }
+h2 { margin: 0 0 16px; font-size: 17px; font-weight: 700; }
+.pad-h { margin: 0; padding: 16px 16px 8px; }
+.approve { margin-top: 20px; }
 h3 { margin: 20px 0 8px; font-size: 13px; font-weight: 500; color: var(--muted); }
 .pad { padding: 20px; }
 .pad button { margin: 0; }
@@ -116,8 +119,10 @@ a { color: var(--accent); }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; }
 .viol { margin: 0 0 16px; padding-left: 18px; }
+.badge.APPROVED { color: var(--ok); }
+.badge.WARNING { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .badge.DRAFT { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
-.demo-label { display: inline-block; margin: 12px 0 0; padding: 4px 10px; border-radius: 6px; color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); font-weight: 700; }
+.demo-label { display: inline-block; padding: 2px 8px; border-radius: 4px; color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); font-size: 12px; font-weight: 600; }
 .badge.CRITICAL, .badge.INFEASIBLE, .badge.UNKNOWN, .badge.MODEL_INVALID { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
 details { margin-top: 16px; }
 summary { cursor: pointer; color: var(--muted); font-size: 13px; }

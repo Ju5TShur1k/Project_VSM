@@ -36,10 +36,12 @@ public class PlanningService {
     // A client-supplied limit would let any logged-in user pin the solver thread.
     private static final int MAX_TIME_LIMIT_SEC = 300;
 
-    // Placeholder until D2's validator exists: no plan can be approved unchecked.
+    // Placeholder until D2's validator exists. A WARNING, not CRITICAL: the plan may be
+    // approved "with a caveat" (validationStatus stays NOT_PERFORMED on the approved plan).
+    // Once a PlanValidator bean exists, approval requires PASS again.
     private static final PlanValidator NOT_PERFORMED = (snapshot, result) -> List.of(new Dto.Validation(
-            "VALIDATION_NOT_PERFORMED", "CRITICAL",
-            "Независимая проверка (D2) не выполнена — утверждение плана недоступно"));
+            "VALIDATION_NOT_PERFORMED", "WARNING",
+            "Независимая проверка D2 не выполнена — план согласуется с оговоркой"));
 
     private final Store store = new Store();
     private final PlanValidator validator;
@@ -253,9 +255,9 @@ public class PlanningService {
             if (plan.version != req.expectedVersion()) {
                 throw new VersionConflictException(plan.version);
             }
-            if (!"PASS".equals(plan.validationStatus)
+            if ("FAILED".equals(plan.validationStatus)
                     || (!"OPTIMAL".equals(plan.solverStatus) && !"FEASIBLE".equals(plan.solverStatus))) {
-                throw new NotApprovableException("independent D2 validation must pass and solver must be feasible");
+                throw new NotApprovableException("D2 validation failed or solver result is not feasible");
             }
             List<String> critical = plan.validations.stream()
                     .filter(v -> "CRITICAL".equals(v.severity())).map(Dto.Validation::code).toList();

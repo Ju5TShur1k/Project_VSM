@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, DemoSource, Train, Unauthorized } from './api'
+import { api, DemoSource, ru, Train, Unauthorized } from './api'
 import Login from './Login'
 import Planning from './Planning'
 import CalendarDemo from './calendar/CalendarDemo'
@@ -46,77 +46,79 @@ function Fleet({ username }: { username: string }) {
   })
 
   return (
-    <main>
-      <div className="bar">
-        <h1>
-          ОКНО ВСМ <span>/ Парк</span>
-        </h1>
-        <span className="muted">
+    <>
+      <header className="top">
+        <div>
+          <strong>ОКНО ВСМ</strong>
+          <span>Планирование ТО парка ЭВС360</span>
+        </div>
+        <span>
           {username} ·{' '}
           <button className="link" onClick={() => logout.mutate()} disabled={logout.isPending}>
             Выйти
           </button>
         </span>
-      </div>
+      </header>
+      <main>
+        <span className="demo-label">Демо-данные</span>
 
-      <p className="demo-label">Демонстрационные данные</p>
+        {!source && (
+          <button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
+            {importMutation.isPending ? 'Загрузка…' : 'Загрузить демо-данные'}
+          </button>
+        )}
+        {importMutation.isError && <p className="error">Ошибка: {importMutation.error.message}</p>}
+        {trainsQuery.isError && <p className="error">Ошибка: {trainsQuery.error.message}</p>}
 
-      {source ? (
-        <>
-          <section className="card pad">
-            <h2>Исходные данные · рейс R1</h2>
-            <p className="muted">Прибытие R1 влияет на доступное время обслуживания перед рейсом R2. Изменение создаёт новый snapshot; предыдущий остаётся в базе.</p>
-            <div className="row">
-              <label>Прибытие R1, Москва
-                <select value={arrivalMinute} onChange={(e) => setArrivalMinute(Number(e.target.value))}>
-                  {[50, 55, 60].map((minute) => <option key={minute} value={minute}>01.07.2028 {minute === 60 ? '01:00' : `00:${minute}`}</option>)}
-                </select>
-              </label>
-              <button onClick={() => changeTrip.mutate()} disabled={changeTrip.isPending}>
-                {changeTrip.isPending ? 'Сохраняем…' : 'Сохранить новый snapshot'}
-              </button>
-            </div>
-            {changeTrip.isError && <p className="error">{changeTrip.error.message}</p>}
-          </section>
-          <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data} />
-        </>
-      ) : (
-        <button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
-          {importMutation.isPending ? 'Загрузка…' : 'Загрузить демонстрационные исходные данные'}
-        </button>
-      )}
-
-      {importMutation.isError && <p className="error">Ошибка: {importMutation.error.message}</p>}
-      {trainsQuery.isLoading && <p className="muted">Загрузка парка…</p>}
-      {trainsQuery.isError && <p className="error">Ошибка: {trainsQuery.error.message}</p>}
-      {trainsQuery.data && trainsQuery.data.length === 0 && <p className="muted">Парк пуст.</p>}
-
-      {trainsQuery.data && trainsQuery.data.length > 0 && (
-        <div className="card">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Статус</th>
-                <th className="num">Пробег, км</th>
-                <th>Ближайшее обязательство</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trainsQuery.data.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.externalId}</td>
-                  <td>
-                    <span className={`badge ${t.status}`}>{t.status}</span>
-                  </td>
-                  <td className="num">{t.mileageKm}</td>
-                  <td>{t.nextObligation}</td>
+        {trainsQuery.data && trainsQuery.data.length > 0 && (
+          <section className="card">
+            <h2 className="pad-h">Парк</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Состав</th>
+                  <th>Статус</th>
+                  <th className="num">Пробег, км</th>
+                  <th>Ближайшее ТО</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </main>
+              </thead>
+              <tbody>
+                {trainsQuery.data.map((t) => (
+                  <tr key={t.id}>
+                    <td>{t.externalId}</td>
+                    <td>
+                      <span className={`badge ${t.status}`}>{ru(t.status)}</span>
+                    </td>
+                    <td className="num">{t.mileageKm.toLocaleString('ru-RU')}</td>
+                    <td>{t.nextObligation}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {source && (
+          <>
+            <section className="card pad">
+              <h2>Рейс R1</h2>
+              <div className="row">
+                <label>Прибытие (МСК)
+                  <select value={arrivalMinute} onChange={(e) => setArrivalMinute(Number(e.target.value))}>
+                    {[50, 55, 60].map((minute) => <option key={minute} value={minute}>01.07.2028 {minute === 60 ? '01:00' : `00:${minute}`}</option>)}
+                  </select>
+                </label>
+                <button onClick={() => changeTrip.mutate()} disabled={changeTrip.isPending}>
+                  {changeTrip.isPending ? 'Сохраняем…' : 'Сохранить'}
+                </button>
+                <span className="muted" title={source.snapshotHash}>Версия данных {source.snapshotHash.slice(0, 12)}</span>
+              </div>
+              {changeTrip.isError && <p className="error">{changeTrip.error.message}</p>}
+            </section>
+            <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data} />
+          </>
+        )}
+      </main>
+    </>
   )
 }

@@ -9,7 +9,7 @@ POST /planning-jobs  ->  job QUEUED (202)
    worker-поток: SyntheticSnapshot -> PlannerRequest -> Planner.plan -> PlannerResult
                  -> Plan (events + validations) -> job SUCCEEDED, solverStatus = статус солвера
 GET  /planning-jobs/{id}  (опрос)   GET /plans/{id}
-POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL-нарушение
+POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL-нарушение, solver не нашёл план или D2 = FAILED
 ```
 
 - Статус задания (`QUEUED/RUNNING/SUCCEEDED/FAILED`) и `solverStatus` (`OPTIMAL/FEASIBLE/INFEASIBLE/UNKNOWN/MODEL_INVALID`) независимы. `SUCCEEDED` + `INFEASIBLE` — нормальный исход: создаётся план без работ с нарушением `SOLVER_INFEASIBLE`.
@@ -38,10 +38,10 @@ POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL
 
 ## Что нужно от других
 
-- **D2:** реализовать `PlanValidator` как Spring-бин, заглушка «не выполнена» отключится сама. Пока её нет, каждый план получает `VALIDATION_NOT_PERFORMED` (CRITICAL), и утверждение недоступно. Это намеренно.
+- **D2:** реализовать `PlanValidator` как Spring-бин, заглушка «не выполнена» отключится сама. Пока её нет, каждый план получает `VALIDATION_NOT_PERFORMED` (WARNING), и согласование разрешено **с оговоркой**: план получает статус `APPROVED`, а `validationStatus` остаётся `NOT_PERFORMED`, в UI — «Согласован без независимой проверки D2». С бином валидатора согласование требует `PASS`.
 - **D1:** заменить `SyntheticSnapshot` проекцией канонического снапшота (реальные рейсы, история циклов, окна ресурсов) и хранить задания/планы в БД.
 - **A1:** подтверждённые блоки и длительности вместо синтетических.
 
 ## Проверка
 
-`FlowSmokeTest` (сквозной поток с заглушкой-валидатором), `PlannerWiringTest` (утверждение без валидатора запрещено, сбой сдвигает работы с пути, невалидный ввод -> 422). Нужны нативные библиотеки OR-Tools, см. примечание про JDK в README.
+`FlowSmokeTest` (сквозной поток с заглушкой-валидатором), `PlannerWiringTest` (без валидатора план согласуется с оговоркой NOT_PERFORMED, сбой сдвигает работы с пути, невалидный ввод -> 422). Нужны нативные библиотеки OR-Tools, см. примечание про JDK в README.

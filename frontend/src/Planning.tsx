@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Conflict, Plan, Train } from './api'
+import { api, Conflict, Plan, ru, Train } from './api'
 import PlanningCalendar from './calendar/PlanningCalendar'
 
 // Only these solver outcomes yield a plan that may be approved (ТЗ: UNKNOWN /
@@ -8,11 +8,11 @@ import PlanningCalendar from './calendar/PlanningCalendar'
 const APPROVABLE = ['OPTIMAL', 'FEASIBLE']
 
 // Why the approve button is off, or null if the plan can be approved. Mirrors the
-// server, which independently answers 422 for a plan with CRITICAL violations.
+// server: a missing D2 check (NOT_PERFORMED) is a caveat, not a blocker.
 function blocker(plan: Plan, solver: string): string | null {
-  if (plan.status === 'APPROVED') return `Уже согласован пользователем ${plan.approvedBy}`
-  if (!APPROVABLE.includes(solver)) return `Расчёт не дал допустимого плана (${solver || 'нет статуса'})`
-  if (plan.validationStatus !== 'PASS') return `Проверка D2: ${plan.validationStatus}`
+  if (plan.status === 'APPROVED') return null
+  if (!APPROVABLE.includes(solver)) return 'Нет допустимого плана — согласовать нельзя'
+  if (plan.validationStatus === 'FAILED') return 'Проверка D2 не пройдена'
   if (plan.validations.some((v) => v.severity === 'CRITICAL')) return 'Есть критические нарушения'
   return null
 }
@@ -71,21 +71,17 @@ export default function Planning({
   const blocked = p ? blocker(p, solver) : null
   const error = [start, job, plan, calendar, approve].find((q) => q.isError)?.error
 
+  // The D2 caveat has its own line next to the approve button.
+  const findings = p?.validations.filter((v) => v.code !== 'VALIDATION_NOT_PERFORMED') ?? []
+  const noD2 = p?.validationStatus === 'NOT_PERFORMED'
+
   return (
     <section className="card pad">
-      <h2>Расчёт планировщика → проверка D2 → календарь</h2>
+      <h2>План ТО</h2>
 
-      <div className="row">
-        <button onClick={() => start.mutate()} disabled={running}>
-          {running ? 'Расчёт…' : p ? 'Пересчитать план' : 'Рассчитать план'}
-        </button>
-      </div>
-      <p className="muted">Расчёт использует hash сохранённого snapshot. Результат и календарь относятся к этому hash.</p>
-      <dl className="kv">
-        <dt>Задание</dt><dd>{job.data?.status ?? (jobId ? 'Загрузка…' : 'Не запускалось')}</dd>
-        <dt>Расчёт</dt><dd>{job.data?.solverStatus ?? 'Не выполнялся'}</dd>
-        <dt>Проверка D2</dt><dd>{p?.validationStatus ?? 'Не проводилась'}</dd>
-      </dl>
+      <button onClick={() => start.mutate()} disabled={running}>
+        {running ? 'Расчёт…' : p ? 'Пересчитать' : 'Рассчитать план'}
+      </button>
 
       {error && (
         <p className="error" role="alert">
@@ -93,36 +89,36 @@ export default function Planning({
         </p>
       )}
       {['FAILED', 'CANCELLED'].includes(job.data?.status ?? '') && (
-        <p className="error">
-          Расчёт завершился со статусом {job.data?.status}
-          {job.data?.error && `: ${job.data.error}`}
-        </p>
+        <p className="error">Расчёт не выполнен{job.data?.error && `: ${job.data.error}`}</p>
       )}
 
       {p && (
         <>
           <dl className="kv">
-            <dt>Версия</dt>
-            <dd>{p.version}</dd>
+            <dt>Результат</dt>
+            <dd>
+              <span className={`badge ${solver}`}>{ru(solver)}</span>
+            </dd>
             <dt>Статус</dt>
             <dd>
-              <span className={`badge ${p.status}`}>{p.status}</span>
+              <span className={`badge ${p.status}`}>{ru(p.status)}</span>
+              {p.approvedBy && ` · ${p.approvedBy}`}
             </dd>
-            <dt>Hash snapshot результата</dt>
-            <dd><code>{p.snapshotHash}</code></dd>
-            <dt>Солвер</dt>
-            <dd>
-              <span className={`badge ${solver}`}>{solver || '—'}</span>
-            </dd>
-            <dt>Работ в плане</dt>
-            <dd>{p.events.length}</dd>
-            {p.approvedBy && (
-              <>
-                <dt>Согласовал</dt>
-                <dd>{p.approvedBy}</dd>
-              </>
-            )}
+            <dt>Проверка D2</dt>
+            <dd>{ru(p.validationStatus)}</dd>
+            <dt>Версия данных</dt>
+            <dd title={p.snapshotHash}><code>{p.snapshotHash.slice(0, 12)}</code></dd>
           </dl>
+
+          {findings.length > 0 && (
+            <ul className="viol">
+              {findings.map((v, i) => (
+                <li key={i}>
+                  <span className={`badge ${v.severity}`}>{v.severity}</span> {v.message}
+                </li>
+              ))}
+            </ul>
+          )}
 
           {p.events.length > 0 && (
             <details>
@@ -150,39 +146,40 @@ export default function Planning({
             </details>
           )}
 
-          <h3>Результат проверки и диагностика</h3>
-          {p.validations.length === 0 ? (
-            <p className="muted">Критических замечаний нет. Статус D2: {p.validationStatus}.</p>
-          ) : (
-            <ul className="viol">
-              {p.validations.map((v, i) => (
-                <li key={i}>
-                  <span className={`badge ${v.severity}`}>{v.severity}</span> {v.code}: {v.message}
-                </li>
-              ))}
-            </ul>
+          {p.status !== 'APPROVED' && (
+            <form
+              className="row approve"
+              onSubmit={(e) => {
+                e.preventDefault()
+                approve.mutate()
+              }}
+            >
+              <input
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Комментарий (необязательно)"
+                aria-label="Комментарий"
+                disabled={!!blocked}
+              />
+              <button disabled={!!blocked || approve.isPending}>
+                {approve.isPending ? 'Согласуем…' : 'Согласовать'}
+              </button>
+              <a href={`/api/v1/plans/${p.id}/export`} download>
+                Скачать CSV
+              </a>
+            </form>
           )}
-
-          <form
-            className="row"
-            onSubmit={(e) => {
-              e.preventDefault()
-              approve.mutate()
-            }}
-          >
-            <input
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Комментарий (необязательно)"
-              aria-label="Комментарий"
-              disabled={!!blocked}
-            />
-            <button disabled={!!blocked || approve.isPending}>Согласовать</button>
+          {blocked && <p className="error">{blocked}</p>}
+          {!blocked && noD2 && (
+            <p className="muted">
+              {p.status === 'APPROVED' ? 'Согласован без' : 'Согласование пройдёт без'} независимой проверки D2.
+            </p>
+          )}
+          {p.status === 'APPROVED' && (
             <a href={`/api/v1/plans/${p.id}/export`} download>
               Скачать CSV
             </a>
-          </form>
-          {blocked && <p className="muted">{blocked}</p>}
+          )}
           {calendar.data && <PlanningCalendar data={calendar.data} />}
         </>
       )}

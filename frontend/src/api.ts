@@ -146,3 +146,21 @@ export const api = {
       body: JSON.stringify({ expectedVersion, comment })
     }).then(json<Plan>)
 }
+
+// Status codes from the API, as the user should read them.
+const RU: Record<string, string> = {
+  OPTIMAL: 'Оптимальный план',
+  FEASIBLE: 'Допустимый план',
+  INFEASIBLE: 'Нет допустимого плана',
+  UNKNOWN: 'Решение не найдено',
+  MODEL_INVALID: 'Ошибка модели',
+  PASS: 'пройдена',
+  FAILED: 'не пройдена',
+  NOT_PERFORMED: 'не выполнена',
+  DRAFT: 'Черновик',
+  APPROVED: 'Согласован',
+  AVAILABLE: 'Доступен',
+  HOT_RESERVE: 'Горячий резерв',
+  READY_IDLE: 'Готов, простаивает'
+}
+export const ru = (code: string | null | undefined) => (code ? RU[code] ?? code : '—')

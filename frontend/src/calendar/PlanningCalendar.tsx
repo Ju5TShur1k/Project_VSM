@@ -64,12 +64,7 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
 
   return (
     <section className="card pad planning-calendar" aria-label="Календарь по поездам и ресурсам">
-      <div className="bar">
-        <h2>Календарь работ и рейсов</h2>
-        <span className="badge DRAFT">{data.provenance}</span>
-      </div>
-      <p className="muted">Сценарий <code>{data.scenarioId}</code> · snapshot <code>{data.snapshotHash}</code> · {data.policy} · {data.solverStatus}</p>
-      {!data.independentlyValidated && <p className="error">Проверка D2: {data.validationStatus}. Календарь нельзя утверждать.</p>}
+      <h2>Календарь</h2>
       <div className="calendar-scroll">
         <div className="calendar-grid" style={{ width: Math.max(900, Math.min(8000, hourCount * 40)) }}>
           <div className="calendar-axis">
@@ -95,7 +90,6 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
           </div>)}
         </div>
       </div>
-      <p className="muted">Интервалы [начало, конец); касание границ разрешено. Время показано по Москве.</p>
       {selected ? <div className="calendar-detail" aria-live="polite">
         <h3>{selected.label}</h3>
         <dl className="kv">
@@ -110,7 +104,7 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
           <dt>Источник</dt><dd>{selected.source}</dd>
           <dt>Причина окна</dt><dd>{selected.reason}</dd>
         </dl>
-      </div> : <p className="muted">Выберите рейс или работу, чтобы увидеть источник и причину размещения.</p>}
+      </div> : <p className="muted">Время московское. Нажмите на рейс или работу, чтобы увидеть подробности.</p>}
     </section>
   )
 }

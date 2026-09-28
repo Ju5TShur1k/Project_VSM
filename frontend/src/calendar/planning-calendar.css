@@ -14,3 +14,4 @@
 .calendar-block.selected { outline: 2px solid var(--text); outline-offset: 2px; }
 .calendar-detail { padding-top: 4px; }
 .calendar-detail .kv { margin-top: 8px; }
+.card .planning-calendar { border: 0; padding: 0; margin-top: 28px; }

@@ -264,8 +264,10 @@ paths:
               schema: { $ref: '#/components/schemas/ApiError' }
         '422':
           description: >
-            PLAN_NOT_APPROVABLE - the plan carries a CRITICAL validation (no
-            admissible plan, or the independent validation has not passed).
+            PLAN_NOT_APPROVABLE - the plan carries a CRITICAL validation, the solver
+            found no admissible plan, or the independent validation FAILED. While D2's
+            validator is absent (NOT_PERFORMED, WARNING) approval is allowed with a
+            caveat; the approved plan keeps validationStatus NOT_PERFORMED.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
