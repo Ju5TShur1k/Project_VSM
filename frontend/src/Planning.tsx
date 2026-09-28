@@ -164,7 +164,7 @@ export default function Planning({
               <button disabled={!!blocked || approve.isPending}>
                 {approve.isPending ? 'Согласуем…' : 'Согласовать'}
               </button>
-              <a href={`/api/v1/plans/${p.id}/export`} download>
+              <a className="btn-outline" href={`/api/v1/plans/${p.id}/export`} download>
                 Скачать CSV
               </a>
             </form>
@@ -176,9 +176,9 @@ export default function Planning({
             </p>
           )}
           {p.status === 'APPROVED' && (
-            <a href={`/api/v1/plans/${p.id}/export`} download>
+            <p><a className="btn-outline" href={`/api/v1/plans/${p.id}/export`} download>
               Скачать CSV
-            </a>
+            </a></p>
           )}
           {calendar.data && <PlanningCalendar data={calendar.data} />}
         </>
