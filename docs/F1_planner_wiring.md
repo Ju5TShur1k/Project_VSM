@@ -1,6 +1,6 @@
 # F1: подключение планировщика F2 к HTTP API
 
-Запись отображения между HTTP-контрактом и внутренним `Planner`, как просили F2/D1/D2. Статус: **работает на синтетическом входе**, проверка D2 отсутствует.
+Запись отображения между HTTP-контрактом и внутренним `Planner`, как просили F2/D1/D2. Обновление 28.09: профиль database получает сохранённый источник D1 и подключает независимую проверку E2. Отчёт, привязка утверждения и границы E3 описаны в [D2_VALIDATION.md](D2_VALIDATION.md). Старый синтетический поток ниже сохранён для разработки и не получает PASS по реальному источнику.
 
 ## Поток
 
@@ -9,7 +9,7 @@ POST /planning-jobs  ->  job QUEUED (202)
    worker-поток: SyntheticSnapshot -> PlannerRequest -> Planner.plan -> PlannerResult
                  -> Plan (events + validations) -> job SUCCEEDED, solverStatus = статус солвера
 GET  /planning-jobs/{id}  (опрос)   GET /plans/{id}
-POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL-нарушение, solver не нашёл план или D2 = FAILED
+POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL-нарушение, solver не нашёл план или нет соответствующего текущей версии PASS D2
 ```
 
 - Статус задания (`QUEUED/RUNNING/SUCCEEDED/FAILED`) и `solverStatus` (`OPTIMAL/FEASIBLE/INFEASIBLE/UNKNOWN/MODEL_INVALID`) независимы. `SUCCEEDED` + `INFEASIBLE` — нормальный исход: создаётся план без работ с нарушением `SOLVER_INFEASIBLE`.
@@ -38,10 +38,10 @@ POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL
 
 ## Что нужно от других
 
-- **D2:** реализовать `PlanValidator` как Spring-бин, заглушка «не выполнена» отключится сама. Пока её нет, каждый план получает `VALIDATION_NOT_PERFORMED` (WARNING), и согласование разрешено **с оговоркой**: план получает статус `APPROVED`, а `validationStatus` остаётся `NOT_PERFORMED`, в UI — «Согласован без независимой проверки D2». С бином валидатора согласование требует `PASS`.
+- **D2:** `DatabasePlanValidator` подключён на профиле database. `Plan.validationReport` версии d2-validation-1.0 и `metrics` отражены в OpenAPI; PASS применяется только к указанной области. Для E3 нужен расширенный источник и вызов подготовленных проверок. На профиле без БД сохраняется NOT_PERFORMED.
 - **D1:** заменить `SyntheticSnapshot` проекцией канонического снапшота (реальные рейсы, история циклов, окна ресурсов) и хранить задания/планы в БД.
 - **A1:** подтверждённые блоки и длительности вместо синтетических.
 
 ## Проверка
 
-`FlowSmokeTest` (сквозной поток с заглушкой-валидатором), `PlannerWiringTest` (без валидатора план согласуется с оговоркой NOT_PERFORMED, сбой сдвигает работы с пути, невалидный ввод -> 422). Нужны нативные библиотеки OR-Tools, см. примечание про JDK в README.
+`FlowSmokeTest` (сквозной поток с заглушкой-валидатором), `PlannerWiringTest` (без валидатора согласование запрещено, сбой сдвигает работы с пути, невалидный ввод -> 422). Нужны нативные библиотеки OR-Tools, см. примечание про JDK в README.

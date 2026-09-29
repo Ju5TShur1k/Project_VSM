@@ -29,7 +29,7 @@ class PlannerWiringTest {
     MockMvc mvc;
 
     @Test
-    void unvalidatedPlanIsApprovedWithCaveat() throws Exception {
+    void unvalidatedPlanCannotBeApproved() throws Exception {
         PlannerApi api = new PlannerApi(mvc);
         JsonNode job = api.runJob(api.importScenario(), "k");
         JsonNode plan = api.plan(job);
@@ -38,11 +38,9 @@ class PlannerWiringTest {
         assertEquals("VALIDATION_NOT_PERFORMED", plan.get("validations").get(0).get("code").asText());
         assertEquals("WARNING", plan.get("validations").get(0).get("severity").asText());
 
-        JsonNode approved = api.postJson("/api/v1/plans/" + plan.get("id").asText() + "/approve",
-                "{\"expectedVersion\":0,\"comment\":\"ok\"}", 200);
-        assertEquals("APPROVED", approved.get("status").asText());
-        // the caveat stays visible on the approved plan
-        assertEquals("NOT_PERFORMED", approved.get("validationStatus").asText());
+        api.postJson("/api/v1/plans/" + plan.get("id").asText() + "/approve",
+                "{\"expectedVersion\":0,\"comment\":\"ok\"}", 422);
+        assertEquals("DRAFT",api.getJson("/api/v1/plans/"+plan.get("id").asText()).get("status").asText());
     }
 
     @Test

@@ -9,11 +9,11 @@ import { Icon } from './Icons'
 const APPROVABLE = ['OPTIMAL', 'FEASIBLE']
 
 // Why the approve button is off, or null if the plan can be approved. Mirrors the
-// server: a missing D2 check (NOT_PERFORMED) is a caveat, not a blocker.
+// server: approval requires an independent D2 PASS for this plan version.
 function blocker(plan: Plan, solver: string): string | null {
   if (plan.status === 'APPROVED') return null
   if (!APPROVABLE.includes(solver)) return 'Нет допустимого плана — согласовать нельзя'
-  if (plan.validationStatus === 'FAILED') return 'Проверка D2 не пройдена'
+  if (plan.validationStatus !== 'PASS' || plan.validationReport?.status !== 'PASS') return 'Согласование недоступно: независимая проверка D2 должна быть пройдена'
   if (plan.validations.some((v) => v.severity === 'CRITICAL')) return 'Есть критические нарушения'
   return null
 }
@@ -79,7 +79,6 @@ export default function Planning({
 
   // The D2 caveat has its own line next to the approve button.
   const findings = p?.validations.filter((v) => v.code !== 'VALIDATION_NOT_PERFORMED') ?? []
-  const noD2 = p?.validationStatus === 'NOT_PERFORMED'
 
   return (
     <section className="card pad">
@@ -152,6 +151,33 @@ export default function Planning({
             </details>
           )}
 
+          {p.validationReport && <p className="muted">
+            Область проверки: {p.validationReport.scope === 'E2_MODEL' ? 'модельный план E2' : p.validationReport.scope}.
+            {p.validationReport.ruleVersion && <> Версия правил: {p.validationReport.ruleVersion}.</>}
+            {' '}Проверено {fmt(p.validationReport.checkedAt)}.
+          </p>}
+          {p.metrics && <>
+            <h3>Показатели проверенного плана</h3>
+            <p className="muted">ТО измерено в суммарных часах работ по составам. Это не коэффициент готовности парка и не фактически выполненные рейсы.</p>
+            <dl className="kv">
+              <dt>Рейсов в исходном графике</dt><dd>{p.metrics.scheduledTripCount}</dd>
+              <dt>Конфликтов работ с рейсами</dt><dd>{p.metrics.conflictingTripCount}</dd>
+              <dt>Обязательных / размещённых работ</dt><dd>{p.metrics.requiredServiceCount} / {p.metrics.placedServiceCount}</dd>
+              <dt>Отсутствующих работ</dt><dd>{p.metrics.missingServiceCount}</dd>
+              <dt>Суммарное ТО, составо-часов</dt><dd>{(p.metrics.trainServiceMinutes / 60).toFixed(1)}</dd>
+              <dt>Максимум одновременных работ</dt><dd>{p.metrics.peakConcurrentService}</dd>
+            </dl>
+            <table><thead><tr><th>Ресурс</th><th>Работы, ч</th><th>Доля горизонта, %</th></tr></thead>
+              <tbody>{p.metrics.resourceLoads.map(r => <tr key={r.resourceId}><td>{r.resourceId}</td><td>{(r.busyMinutes / 60).toFixed(1)}</td><td>{r.horizonSharePercent.toFixed(2)}</td></tr>)}</tbody>
+            </table>
+          </>}
+          {!!p.validationReport?.pendingMilestones.length && <details>
+            <summary>Следующие пробеговые рубежи за горизонтом ({p.validationReport.pendingMilestones.length})</summary>
+            <table><thead><tr><th>Состав</th><th>Цикл</th><th>Рубеж, км</th><th>Осталось от конца горизонта, км</th></tr></thead>
+              <tbody>{p.validationReport.pendingMilestones.map(m => <tr key={`${m.trainId}:${m.cycleCode}`}><td>{trainName.get(m.trainId) ?? m.trainId}</td><td>{m.cycleCode}</td><td>{m.nominalKm}</td><td>{m.remainingKm}</td></tr>)}</tbody>
+            </table>
+          </details>}
+
           {canApprove && p.status !== 'APPROVED' && (
             <form
               className="row approve"
@@ -177,11 +203,6 @@ export default function Planning({
           )}
           {!canApprove && p.status !== 'APPROVED' && <p className="muted">Согласует планировщик.</p>}
           {canApprove && blocked && <p className="error">{blocked}</p>}
-          {canApprove && !blocked && noD2 && (
-            <p className="muted">
-              {p.status === 'APPROVED' ? 'Согласован без' : 'Согласование пройдёт без'} независимой проверки D2.
-            </p>
-          )}
           {(p.status === 'APPROVED' || !canApprove) && (
             <p><a className="btn-outline" href={`/api/v1/plans/${p.id}/export`} download>
               Скачать CSV

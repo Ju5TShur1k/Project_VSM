@@ -6,7 +6,39 @@ export type Train = {
   nextObligation: string
 }
 
-export type Validation = { code: string; severity: string; message: string }
+export type Validation = { code: string; severity: string; message: string; objectId?: string | null; startAt?: string | null; endAt?: string | null }
+
+export type ValidationReport = {
+  schemaVersion: string
+  status: 'PASS' | 'FAILED' | 'NOT_PERFORMED'
+  scope: string
+  scenarioId: string
+  sourceSnapshotId: string | null
+  snapshotHash: string
+  resultHash: string
+  policy: string
+  solverStatus: string
+  planVersion: number
+  checkedAt: string
+  ruleVersion: string | null
+  ruleConfirmation: string | null
+  requiredServiceCount: number | null
+  pendingMilestones: { trainId: string; cycleCode: string; nominalKm: number; remainingKm: number }[]
+  findings: Validation[]
+}
+
+export type PlanMetrics = {
+  scope: string
+  scheduledTripCount: number
+  conflictingTripCount: number
+  requiredServiceCount: number
+  placedServiceCount: number
+  missingServiceCount: number
+  trainServiceMinutes: number
+  makespanMinutes: number
+  peakConcurrentService: number
+  resourceLoads: { resourceId: string; busyMinutes: number; horizonSharePercent: number }[]
+}
 
 export type PlanEvent = {
   id: string
@@ -27,6 +59,8 @@ export type Plan = {
   validations: Validation[]
   snapshotHash: string
   validationStatus: 'PASS' | 'FAILED' | 'NOT_PERFORMED'
+  validationReport?: ValidationReport | null
+  metrics?: PlanMetrics | null
 }
 
 export type DemoSource = {
@@ -43,6 +77,18 @@ export type CaseDataset = {
   tripCount: number
   planningSupported: boolean
   warnings: string[]
+}
+
+export type RecoveryBoard = {
+  id: string; version: number; stateHash: string; scenarioId: string; sourceSnapshotId: string; snapshotHash: string
+  scope: string; provenance: string; windowStart: string; windowEnd: string; asOf: string
+  policy: { version: string; preparationMinutes: number; targetReservePerCity: number; cleaningEveryTrips: number; source: string }
+  trainCount: number; availableTrainCount: number; unavailableTrainCount: number; uncoveredTripCount: number; incompletePairCount: number
+  reserve: { location: string; available: number; target: number; deficit: number }[]
+  trains: { id: string; externalId: string; status: string; location: string; mileageKm: number; tripsSinceCleaning: number | null; readinessEvidence: string }[]
+  trips: { id: string; label: string; pairKey: string; plannedTrainId: string; plannedTrain: string; effectiveTrainId: string; effectiveTrain: string; origin: string; destination: string; departureAt: string; arrivalAt: string; coverage: string }[]
+  faults: { id: string; trainId: string; train: string; trip: string; occurredAt: string; expectedRepairAt: string | null; description: string; status: string; affectedTripIds: string[]; replacementTrain: string | null; candidates: { trainId: string; externalId: string; location: string; eligible: boolean; reasons: string[] }[]; acceptedAt: string | null }[]
+  messages: string[]
 }
 
 export type Role = 'PLANNER' | 'TECHNOLOGIST' | 'DISPATCHER'
@@ -70,10 +116,10 @@ export class Unauthorized extends Error {
   }
 }
 
-// 409 from approve: someone approved/changed the plan since we loaded it.
+// A concurrent plan or operational decision changed the version we loaded.
 export class Conflict extends Error {
   constructor() {
-    super('План уже изменён — загружена актуальная версия, проверьте и согласуйте снова')
+    super('Данные уже изменены — загружена актуальная версия, проверьте решение и повторите действие')
   }
 }
 
@@ -134,6 +180,11 @@ export const api = {
   importCaseDataset: (dataset: CaseDataset['dataset']) =>
     post(`/api/v1/demo/case-source?dataset=${dataset}`).then(json<CaseDataset>),
 
+  createRecovery: (scenarioId: string) => post(`/api/v1/scenarios/${scenarioId}/operations`).then(json<RecoveryBoard>),
+  getRecovery: (id: string) => fetch(`/api/v1/operations/${id}`).then(json<RecoveryBoard>),
+  recoveryCommand: (board: RecoveryBoard, command: 'failures' | 'replacements' | 'releases' | 'clock', body: Record<string, unknown>) =>
+    post(`/api/v1/operations/${board.id}/${command}`, { headers: JSON_HEADERS, body: JSON.stringify({ expectedVersion: board.version, ...body }) }).then(json<RecoveryBoard>),
+
   changeR1Arrival: (scenarioId: string, arrivalMinute: number) =>
     post(`/api/v1/demo/scenarios/${scenarioId}/r1-arrival`, {
       headers: JSON_HEADERS,
@@ -192,6 +243,9 @@ const RU: Record<string, string> = {
   DRAFT: 'Черновик',
   APPROVED: 'Согласован',
   AVAILABLE: 'Доступен',
+  LINE: 'На линии',
+  RESERVE: 'Горячий резерв',
+  MAINTENANCE: 'Плановое ТО',
   HOT_RESERVE: 'Горячий резерв',
   READY_IDLE: 'Готов, простаивает',
   TRIP_CHANGE: 'Изменение рейса',

@@ -3,6 +3,7 @@ package com.vsm.okno.service;
 import com.vsm.okno.dto.Dto;
 import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.planning.ScenarioSnapshot;
+import com.vsm.okno.validation.ValidationReport;
 
 import java.util.List;
 
@@ -13,4 +14,9 @@ import java.util.List;
  */
 public interface PlanValidator {
     List<Dto.Validation> validate(ScenarioSnapshot snapshot, PlannerResult result);
+
+    default ValidationReport report(ScenarioSnapshot snapshot, PlannerResult result) {
+        return ValidationReport.of(snapshot, result, null, "PREPARED_ONLY", null, null,
+                snapshot.blocks().size(), List.of(), validate(snapshot, result));
+    }
 }

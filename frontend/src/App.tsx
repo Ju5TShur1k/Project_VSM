@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, CaseDataset, DemoSource, Role, ru, Train, Unauthorized } from './api'
+import { api, CaseDataset, DemoSource, RecoveryBoard, Role, ru, Train, Unauthorized } from './api'
 import type { CalendarData } from './calendar/PlanningCalendar'
 import Dispatcher, { IncidentLog } from './Dispatcher'
+import RecoveryConsole from './RecoveryConsole'
 import { Icon, Logo } from './Icons'
 import Login from './Login'
 import Planning from './Planning'
@@ -81,7 +82,7 @@ function TrainCard({ train, calendar, onClose }: { train: Train; calendar: Calen
         <button className="btn-outline" onClick={onClose}>Закрыть</button>
       </div>
       <dl className="kv">
-        <dt>Статус</dt><dd><span className={`badge ${train.status}`}>{ru(train.status)}</span></dd>
+        <dt>Статус</dt><dd><span className={`badge ${train.status}`}>{train.status === 'FAILED' ? 'Неисправен' : ru(train.status)}</span></dd>
         <dt>Пробег сейчас</dt><dd>{n(train.mileageKm)} км</dd>
         <dt>Рейсов в горизонте</dt>
         <dd>{calendar ? `${trips.length} · ${n(trips.reduce((s, t) => s + km(t.label), 0))} км` : 'появится после расчёта'}</dd>
@@ -111,21 +112,33 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
   const qc = useQueryClient()
   const [source, setSource] = useState<DemoSource | null>(null)
   const [arrivalMinute, setArrivalMinute] = useState(50)
-  const [dataset, setDataset] = useState<'TOY' | CaseDataset['dataset']>('E2_6')
+  const [dataset, setDataset] = useState<'TOY' | CaseDataset['dataset']>('FULL43')
   const [caseData, setCaseData] = useState<CaseDataset | null>(null)
   const [shortDemo, setShortDemo] = useState(false)
   const [planId, setPlanId] = useState<string | undefined>()
   const [cardId, setCardId] = useState<string | null>(null)
+  const [recovery, setRecovery] = useState<RecoveryBoard | null>(null)
+  const [resumeId] = useState(() => new URLSearchParams(window.location.search).get('operations'))
   const scenarioId = source?.scenarioId ?? null
+  const resumed = useQuery({queryKey:['operations',resumeId],queryFn:()=>api.getRecovery(resumeId!),enabled:!!resumeId && !source,retry:false})
+  useEffect(() => {
+    if(resumed.data && !source) {
+      const board=resumed.data
+      setRecovery(board)
+      setSource({scenarioId:board.scenarioId,snapshotId:board.sourceSnapshotId,snapshotHash:board.snapshotHash,provenance:board.provenance})
+    }
+  },[resumed.data,source])
 
   const importMutation = useMutation({
     mutationFn: async () => {
-      if (dataset === 'TOY') return { source: await api.importDemoSource(), details: null }
+      if (dataset === 'TOY') return { source: await api.importDemoSource(), details: null, recovery: null }
       const details = await api.importCaseDataset(dataset)
-      return { source: details.source, details }
+      return { source: details.source, details, recovery: dataset === 'FULL43' ? await api.createRecovery(details.source.scenarioId) : null }
     },
-    onSuccess: ({ source: loaded, details }) => {
+    onSuccess: ({ source: loaded, details, recovery: board }) => {
       setSource(loaded); setCaseData(details); setShortDemo(details === null); setArrivalMinute(50)
+      setRecovery(board); setPlanId(undefined); setCardId(null)
+      window.history.replaceState(null,'',board ? `/?operations=${board.id}` : '/')
       void qc.invalidateQueries({ queryKey: ['scenario', loaded.scenarioId] })
       void qc.invalidateQueries({ queryKey: ['trains', loaded.scenarioId] })
     }
@@ -139,12 +152,15 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
   const trainsQuery = useQuery<Train[]>({
     queryKey: ['trains', scenarioId],
     queryFn: () => api.getTrains(scenarioId!),
-    enabled: !!scenarioId
+    enabled: !!scenarioId && !recovery
   })
 
   // Same query key as in Planning, so the card reuses the loaded calendar.
   const calendar = useQuery({ queryKey: ['calendar', planId], queryFn: () => api.getCalendar(planId!), enabled: !!planId })
-  const card = trainsQuery.data?.find((t) => t.id === cardId)
+  const fleetTrains: Train[] | undefined = recovery
+    ? recovery.trains.map(t=>({...t,nextObligation:`Уборка: ${t.tripsSinceCleaning ?? 'неизвестно'} / 4 рейса`}))
+    : trainsQuery.data
+  const card = fleetTrains?.find(t=>t.id===cardId)
 
   return (
     <>
@@ -155,7 +171,7 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
               <select value={dataset} onChange={(e) => setDataset(e.target.value as typeof dataset)}>
                 <option value="E2_6">6 составов · 252 рейса</option>
                 <option value="BLOCKED6">6 составов · путь недоступен после первых суток</option>
-                <option value="FULL43">43 состава · полный парк</option>
+                <option value="FULL43">43 состава · отказ перед рейсом, замена и резерв</option>
                 <option value="TOY">1 состав · изменение рейса R1</option>
               </select>
             </label>
@@ -168,8 +184,11 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
           {importMutation.isError && <p className="error">Ошибка: {importMutation.error.message}</p>}
         </section>
         {trainsQuery.isError && <p className="error">Ошибка: {trainsQuery.error.message}</p>}
+        {resumed.isFetching && !source && <p className="muted">Восстанавливаем оперативный сценарий из PostgreSQL…</p>}
+        {resumed.isError && !source && <p className="error">Не удалось восстановить сценарий: {resumed.error.message}</p>}
+        {recovery && <RecoveryConsole key={recovery.id} board={recovery} onChange={setRecovery} />}
 
-        {trainsQuery.data && trainsQuery.data.length > 0 && (
+        {fleetTrains && fleetTrains.length > 0 && (
           <section className="card">
             <h2 className="pad-h"><Icon name="train" />Парк</h2>
             <table>
@@ -178,20 +197,22 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
                   <th>Состав</th>
                   <th>Статус</th>
                   <th className="num">Пробег, км</th>
-                  <th>Ближайшее ТО</th>
+                  <th>{recovery ? 'Уборка' : 'Ближайшее ТО'}</th>
+                  {recovery && <th>Местонахождение</th>}
                 </tr>
               </thead>
               <tbody>
-                {trainsQuery.data.map((t) => (
+                {fleetTrains.map((t) => (
                   <tr key={t.id}>
                     <td>
                       <button className="link" onClick={() => setCardId(t.id)} title="Карточка поезда">{t.externalId}</button>
                     </td>
                     <td>
-                      <span className={`badge ${t.status}`}>{ru(t.status)}</span>
+                      <span className={`badge ${t.status}`}>{t.status === 'FAILED' ? 'Неисправен' : ru(t.status)}</span>
                     </td>
                     <td className="num">{t.mileageKm.toLocaleString('ru-RU')}</td>
                     <td>{t.nextObligation}</td>
+                    {recovery && <td>{recovery.trains.find(train=>train.id===t.id)?.location.replace(/SPB_DEPOT/g,'Санкт-Петербург').replace(/MOSCOW/g,'Москва')}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -217,7 +238,7 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
             {changeTrip.isError && <p className="error">{changeTrip.error.message}</p>}
           </section>
         )}
-        {source && (caseData?.planningSupported !== false
+        {source && !recovery && (caseData?.planningSupported !== false
           ? <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data}
               canApprove={canApprove} onPlan={setPlanId} />
           : <p className="muted">Расчёт для полного парка появится после подключения резерва, уборки и закреплённых работ. Для расчёта выберите набор из 6 составов.</p>)}
