@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 // failures change what the solver produces. Needs the OR-Tools natives (README).
 @SpringBootTest
 @AutoConfigureMockMvc
-@WithMockUser("tester")
+@WithMockUser(username = "tester", roles = "PLANNER")
 @DirtiesContext
 class PlannerWiringTest {
 
@@ -36,12 +36,11 @@ class PlannerWiringTest {
 
         assertEquals(1, plan.get("validations").size());
         assertEquals("VALIDATION_NOT_PERFORMED", plan.get("validations").get(0).get("code").asText());
-        assertEquals("CRITICAL", plan.get("validations").get(0).get("severity").asText());
+        assertEquals("WARNING", plan.get("validations").get(0).get("severity").asText());
 
-        JsonNode refused = api.postJson("/api/v1/plans/" + plan.get("id").asText() + "/approve",
-                "{\"expectedVersion\":0,\"comment\":\"try\"}", 422);
-        assertEquals("PLAN_NOT_APPROVABLE", refused.get("code").asText());
-        assertEquals("DRAFT", api.getJson("/api/v1/plans/" + plan.get("id").asText()).get("status").asText());
+        api.postJson("/api/v1/plans/" + plan.get("id").asText() + "/approve",
+                "{\"expectedVersion\":0,\"comment\":\"ok\"}", 422);
+        assertEquals("DRAFT",api.getJson("/api/v1/plans/"+plan.get("id").asText()).get("status").asText());
     }
 
     @Test

@@ -25,7 +25,15 @@ cd frontend && npm install && npm run dev
 ## Вход
 
 API закрыто сессией (cookie) + CSRF (заголовок `X-XSRF-TOKEN` = значение cookie `XSRF-TOKEN`). Демо-аккаунты из `backend/src/main/resources/application.yml`:
-`planner` / `planner-demo`, `technologist` / `tech-demo`. Пароли переопределяются переменными `OKNO_PLANNER_PASSWORD`, `OKNO_TECH_PASSWORD`.
+`planner` / `planner-demo`, `technologist` / `tech-demo`, `dispatcher` / `disp-demo`. Пароли переопределяются переменными `OKNO_PLANNER_PASSWORD`, `OKNO_TECH_PASSWORD`, `OKNO_DISPATCHER_PASSWORD`.
+
+| Роль | Что может |
+|---|---|
+| Планировщик | Загрузка данных, расчёт, карточка поезда, журнал сообщений, **согласование** |
+| Технолог | То же, кроме согласования |
+| Диспетчер | Сообщает о событиях (изменение рейса, неотложное ТО, отказ оборудования), видит текущий план в календаре без подробностей по пробегу |
+
+Роли проверяет сервер (Spring Security), интерфейс только прячет недоступное. Сообщения диспетчера пока хранятся в памяти и в расчёт автоматически не попадают: планировщик учитывает их при пересчёте.
 Согласующий в плане (`approvedBy`) берётся из сессии, а не из тела запроса.
 
 ## Структура

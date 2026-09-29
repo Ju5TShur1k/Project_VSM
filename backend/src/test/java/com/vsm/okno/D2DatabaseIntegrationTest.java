@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("database")
-@WithMockUser("tester")
+@WithMockUser(username="tester",roles="PLANNER")
 @EnabledIfEnvironmentVariable(named="D1_TEST_DB_URL",matches="jdbc:postgresql:.*")
 class D2DatabaseIntegrationTest {
     @DynamicPropertySource static void database(DynamicPropertyRegistry registry) {

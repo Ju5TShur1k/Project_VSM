@@ -37,7 +37,8 @@ const moscow = (iso: string) => new Date(iso).toLocaleString('ru-RU', {
   timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
 })
 
-export default function PlanningCalendar({ data }: { data: CalendarData }) {
+// details=false: the dispatcher sees when trains are busy, not mileage bounds and rule sources.
+export default function PlanningCalendar({ data, details = true }: { data: CalendarData; details?: boolean }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const start = Date.parse(data.horizonStart)
   const end = Date.parse(data.horizonEnd)
@@ -64,12 +65,7 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
 
   return (
     <section className="card pad planning-calendar" aria-label="Календарь по поездам и ресурсам">
-      <div className="bar">
-        <h2>Календарь работ и рейсов</h2>
-        <span className="badge DRAFT">{data.provenance}</span>
-      </div>
-      <p className="muted">Сценарий <code>{data.scenarioId}</code> · snapshot <code>{data.snapshotHash}</code> · {data.policy} · {data.solverStatus}</p>
-      {!data.independentlyValidated && <p className="error">Проверка D2: {data.validationStatus}. Календарь нельзя утверждать.</p>}
+      <h2>Календарь</h2>
       <div className="calendar-scroll">
         <div className="calendar-grid" style={{ width: Math.max(900, Math.min(8000, hourCount * 40)) }}>
           <div className="calendar-axis">
@@ -95,8 +91,7 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
           </div>)}
         </div>
       </div>
-      <p className="muted">Интервалы [начало, конец); касание границ разрешено. Время показано по Москве.</p>
-      {selected ? <div className="calendar-detail" aria-live="polite">
+      {!details ? <p className="muted">Время московское.</p> : selected ? <div className="calendar-detail" aria-live="polite">
         <h3>{selected.label}</h3>
         <dl className="kv">
           <dt>Интервал</dt><dd>{moscow(selected.startAt)} — {moscow(selected.endAt)}</dd>
@@ -104,13 +99,13 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
           {selected.resourceId && <><dt>Ресурс</dt><dd>{data.resources.find((resource) => resource.id === selected.resourceId)?.label ?? selected.resourceId}</dd></>}
           {selected.cycleCode && <><dt>Цикл</dt><dd>{selected.cycleCode}</dd></>}
           {Boolean(selected.covers?.length) && <><dt>Покрывает</dt><dd>{selected.covers?.join(', ')}</dd></>}
-          {selected.releaseOdometerKm !== undefined && <><dt>Пробег от</dt><dd>{selected.releaseOdometerKm.toLocaleString('ru-RU')} км</dd></>}
-          {selected.dueOdometerKm !== undefined && <><dt>Пробег до</dt><dd>{selected.dueOdometerKm.toLocaleString('ru-RU')} км</dd></>}
+          {selected.releaseOdometerKm != null && <><dt>Пробег от</dt><dd>{selected.releaseOdometerKm.toLocaleString('ru-RU')} км</dd></>}
+          {selected.dueOdometerKm != null && <><dt>Пробег до</dt><dd>{selected.dueOdometerKm.toLocaleString('ru-RU')} км</dd></>}
           {selected.dueAt && <><dt>Срок в сценарии</dt><dd>{moscow(selected.dueAt)}</dd></>}
           <dt>Источник</dt><dd>{selected.source}</dd>
           <dt>Причина окна</dt><dd>{selected.reason}</dd>
         </dl>
-      </div> : <p className="muted">Выберите рейс или работу, чтобы увидеть источник и причину размещения.</p>}
+      </div> : <p className="muted">Время московское. Нажмите на рейс или работу, чтобы увидеть подробности.</p>}
     </section>
   )
 }

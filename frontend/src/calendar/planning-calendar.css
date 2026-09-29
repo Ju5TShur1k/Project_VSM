@@ -1,5 +1,5 @@
 .planning-calendar h2 { margin-bottom: 0; }
-.calendar-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 16px; }
+.calendar-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 2px; margin-top: 8px; }
 .calendar-grid { min-width: 900px; }
 .calendar-axis { height: 46px; margin-left: 130px; position: relative; border-bottom: 1px solid var(--line); }
 .calendar-axis span { position: absolute; top: 8px; transform: translateX(-50%); color: var(--muted); font-size: 11px; white-space: nowrap; }
@@ -14,3 +14,6 @@
 .calendar-block.selected { outline: 2px solid var(--text); outline-offset: 2px; }
 .calendar-detail { padding-top: 4px; }
 .calendar-detail .kv { margin-top: 8px; }
+.card .planning-calendar { border: 0; padding: 0; margin-top: 40px; }
+.calendar-block { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.calendar-block.trip:hover:not(:disabled) { background: var(--text); border-color: transparent; }

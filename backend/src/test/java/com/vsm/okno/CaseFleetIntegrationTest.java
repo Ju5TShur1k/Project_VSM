@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("database")
-@WithMockUser("tester")
+@WithMockUser(username = "tester", roles = "PLANNER")
 @EnabledIfEnvironmentVariable(named = "D1_TEST_DB_URL", matches = "jdbc:postgresql:.*")
 class CaseFleetIntegrationTest {
     @DynamicPropertySource
@@ -143,7 +143,7 @@ class CaseFleetIntegrationTest {
     }
 
     @Test
-    void httpCaseFlowUsesSameSnapshotAndRejectsUnsupportedOrUnvalidatedPlans() throws Exception {
+    void httpCaseFlowUsesSameSnapshotAndRejectsUnsupportedPlans() throws Exception {
         var api = new PlannerApi(mvc);
         var loaded=api.postJson("/api/v1/demo/case-source?dataset=E2_6","{}",201);
         String id=loaded.get("source").get("scenarioId").asText();

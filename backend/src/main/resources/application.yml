@@ -11,6 +11,7 @@ okno:
     users:
       planner: ${OKNO_PLANNER_PASSWORD:planner-demo}
       technologist: ${OKNO_TECH_PASSWORD:tech-demo}
+      dispatcher: ${OKNO_DISPATCHER_PASSWORD:disp-demo}
 management:
   endpoints:
     web:

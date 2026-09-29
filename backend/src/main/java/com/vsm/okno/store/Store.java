@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 // ponytail: single-process in-memory store standing in for Postgres until D1's
 // migrations land (see 02_Техническое_задание.md §7). Swap Store's guts for a
@@ -21,6 +22,9 @@ public class Store {
     // idempotencyKey -> hash of the request content that created it (F1-2: same
     // key + different content must conflict, not silently return the old job).
     public final Map<String, String> jobIdempotencyContent = new ConcurrentHashMap<>();
+    // Newest plan of any scenario: what the dispatcher sees (they don't run calculations).
+    public volatile UUID latestPlanId;
+    public final List<Dto.Incident> incidents = new CopyOnWriteArrayList<>();
 
     public static class Scenario {
         public UUID id;

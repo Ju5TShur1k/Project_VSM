@@ -91,6 +91,17 @@ export type RecoveryBoard = {
   messages: string[]
 }
 
+export type Role = 'PLANNER' | 'TECHNOLOGIST' | 'DISPATCHER'
+
+export type Incident = {
+  id: string
+  train: string
+  kind: 'TRIP_CHANGE' | 'URGENT_MAINTENANCE' | 'EQUIPMENT_DOWN'
+  description: string
+  reportedBy: string
+  reportedAt: string
+}
+
 export type Job = {
   jobId: string
   status: string
@@ -139,7 +150,17 @@ const post = (url: string, init: RequestInit = {}) =>
   fetch(url, { method: 'POST', ...init, headers: { 'X-XSRF-TOKEN': xsrf(), ...init.headers } })
 
 export const api = {
-  me: () => fetch('/api/v1/auth/me').then(json<{ username: string }>),
+  me: () => fetch('/api/v1/auth/me').then(json<{ username: string; role: Role }>),
+
+  currentPlan: () => fetch('/api/v1/current-plan').then(json<{ planId: string | null }>),
+
+  incidents: () => fetch('/api/v1/incidents').then(json<Incident[]>),
+
+  reportIncident: (train: string, kind: Incident['kind'], description: string) =>
+    post('/api/v1/incidents', {
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ train, kind, description })
+    }).then(json<Incident>),
 
   login: async (username: string, password: string) => {
     const res = await post('/api/v1/auth/login', { body: new URLSearchParams({ username, password }) })
@@ -208,3 +229,27 @@ export const api = {
       body: JSON.stringify({ expectedVersion, comment })
     }).then(json<Plan>)
 }
+
+// Status codes from the API, as the user should read them.
+const RU: Record<string, string> = {
+  OPTIMAL: 'Оптимальный план',
+  FEASIBLE: 'Допустимый план',
+  INFEASIBLE: 'Нет допустимого плана',
+  UNKNOWN: 'Решение не найдено',
+  MODEL_INVALID: 'Ошибка модели',
+  PASS: 'пройдена',
+  FAILED: 'не пройдена',
+  NOT_PERFORMED: 'не выполнена',
+  DRAFT: 'Черновик',
+  APPROVED: 'Согласован',
+  AVAILABLE: 'Доступен',
+  LINE: 'На линии',
+  RESERVE: 'Горячий резерв',
+  MAINTENANCE: 'Плановое ТО',
+  HOT_RESERVE: 'Горячий резерв',
+  READY_IDLE: 'Готов, простаивает',
+  TRIP_CHANGE: 'Изменение рейса',
+  URGENT_MAINTENANCE: 'Неотложное ТО',
+  EQUIPMENT_DOWN: 'Отказ оборудования'
+}
+export const ru = (code: string | null | undefined) => (code ? RU[code] ?? code : '—')

@@ -9,7 +9,7 @@ POST /planning-jobs  ->  job QUEUED (202)
    worker-поток: SyntheticSnapshot -> PlannerRequest -> Planner.plan -> PlannerResult
                  -> Plan (events + validations) -> job SUCCEEDED, solverStatus = статус солвера
 GET  /planning-jobs/{id}  (опрос)   GET /plans/{id}
-POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL-нарушение
+POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL-нарушение, solver не нашёл план или нет соответствующего текущей версии PASS D2
 ```
 
 - Статус задания (`QUEUED/RUNNING/SUCCEEDED/FAILED`) и `solverStatus` (`OPTIMAL/FEASIBLE/INFEASIBLE/UNKNOWN/MODEL_INVALID`) независимы. `SUCCEEDED` + `INFEASIBLE` — нормальный исход: создаётся план без работ с нарушением `SOLVER_INFEASIBLE`.
@@ -44,4 +44,4 @@ POST /plans/{id}/approve  -> 422 PLAN_NOT_APPROVABLE, если есть CRITICAL
 
 ## Проверка
 
-`FlowSmokeTest` (сквозной поток с заглушкой-валидатором), `PlannerWiringTest` (утверждение без валидатора запрещено, сбой сдвигает работы с пути, невалидный ввод -> 422). Нужны нативные библиотеки OR-Tools, см. примечание про JDK в README.
+`FlowSmokeTest` (сквозной поток с заглушкой-валидатором), `PlannerWiringTest` (без валидатора согласование запрещено, сбой сдвигает работы с пути, невалидный ввод -> 422). Нужны нативные библиотеки OR-Tools, см. примечание про JDK в README.

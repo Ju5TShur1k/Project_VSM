@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, Conflict, Plan, Train } from './api'
+import { api, Conflict, Plan, ru, Train } from './api'
 import PlanningCalendar from './calendar/PlanningCalendar'
 
 // Only these solver outcomes yield a plan that may be approved (ТЗ: UNKNOWN /
@@ -8,11 +8,11 @@ import PlanningCalendar from './calendar/PlanningCalendar'
 const APPROVABLE = ['OPTIMAL', 'FEASIBLE']
 
 // Why the approve button is off, or null if the plan can be approved. Mirrors the
-// server, which independently answers 422 for a plan with CRITICAL violations.
+// server: approval requires an independent D2 PASS for this plan version.
 function blocker(plan: Plan, solver: string): string | null {
-  if (plan.status === 'APPROVED') return `Уже согласован пользователем ${plan.approvedBy}`
-  if (!APPROVABLE.includes(solver)) return `Расчёт не дал допустимого плана (${solver || 'нет статуса'})`
-  if (plan.validationStatus !== 'PASS') return `Проверка D2: ${plan.validationStatus}`
+  if (plan.status === 'APPROVED') return null
+  if (!APPROVABLE.includes(solver)) return 'Нет допустимого плана — согласовать нельзя'
+  if (plan.validationStatus !== 'PASS' || plan.validationReport?.status !== 'PASS') return 'Согласование недоступно: независимая проверка D2 должна быть пройдена'
   if (plan.validations.some((v) => v.severity === 'CRITICAL')) return 'Есть критические нарушения'
   return null
 }
@@ -30,10 +30,14 @@ const fmt = (iso: string) =>
 // version, which remounts this and drops the now-outdated plan.
 export default function Planning({
   scenarioId,
-  trains
+  trains,
+  canApprove,
+  onPlan
 }: {
   scenarioId: string
   trains: Train[] | undefined
+  canApprove: boolean
+  onPlan: (planId: string | undefined) => void
 }) {
   const qc = useQueryClient()
   const [jobId, setJobId] = useState<string | null>(null)
@@ -53,7 +57,8 @@ export default function Planning({
   })
   const running = start.isPending || ['QUEUED', 'RUNNING'].includes(job.data?.status ?? '')
 
-  const planId = job.data?.planId
+  const planId = job.data?.planId ?? undefined
+  useEffect(() => onPlan(planId), [planId, onPlan])
   const plan = useQuery({ queryKey: ['plan', planId], queryFn: () => api.getPlan(planId!), enabled: !!planId })
   const calendar = useQuery({ queryKey: ['calendar', planId], queryFn: () => api.getCalendar(planId!), enabled: !!planId })
 
@@ -71,21 +76,16 @@ export default function Planning({
   const blocked = p ? blocker(p, solver) : null
   const error = [start, job, plan, calendar, approve].find((q) => q.isError)?.error
 
+  // The D2 caveat has its own line next to the approve button.
+  const findings = p?.validations.filter((v) => v.code !== 'VALIDATION_NOT_PERFORMED') ?? []
+
   return (
     <section className="card pad">
-      <h2>Расчёт планировщика → проверка D2 → календарь</h2>
+      <h2>План ТО</h2>
 
-      <div className="row">
-        <button onClick={() => start.mutate()} disabled={running}>
-          {running ? 'Расчёт…' : p ? 'Пересчитать план' : 'Рассчитать план'}
-        </button>
-      </div>
-      <p className="muted">Расчёт использует hash сохранённого snapshot. Результат и календарь относятся к этому hash.</p>
-      <dl className="kv">
-        <dt>Задание</dt><dd>{job.data?.status ?? (jobId ? 'Загрузка…' : 'Не запускалось')}</dd>
-        <dt>Расчёт</dt><dd>{job.data?.solverStatus ?? 'Не выполнялся'}</dd>
-        <dt>Проверка D2</dt><dd>{p?.validationStatus ?? 'Не проводилась'}</dd>
-      </dl>
+      <button onClick={() => start.mutate()} disabled={running}>
+        {running ? 'Расчёт…' : p ? 'Пересчитать' : 'Рассчитать план'}
+      </button>
 
       {error && (
         <p className="error" role="alert">
@@ -93,40 +93,36 @@ export default function Planning({
         </p>
       )}
       {['FAILED', 'CANCELLED'].includes(job.data?.status ?? '') && (
-        <p className="error">
-          Расчёт завершился со статусом {job.data?.status}
-          {job.data?.error && `: ${job.data.error}`}
-        </p>
+        <p className="error">Расчёт не выполнен{job.data?.error && `: ${job.data.error}`}</p>
       )}
 
       {p && (
         <>
           <dl className="kv">
-            <dt>Версия</dt>
-            <dd>{p.version}</dd>
+            <dt>Результат</dt>
+            <dd>
+              <span className={`badge ${solver}`}>{ru(solver)}</span>
+            </dd>
             <dt>Статус</dt>
             <dd>
-              <span className={`badge ${p.status}`}>{p.status}</span>
+              <span className={`badge ${p.status}`}>{ru(p.status)}</span>
+              {p.approvedBy && ` · ${p.approvedBy}`}
             </dd>
-            <dt>Hash snapshot результата</dt>
-            <dd><code>{p.snapshotHash}</code></dd>
-            <dt>Солвер</dt>
-            <dd>
-              <span className={`badge ${solver}`}>{solver || '—'}</span>
-            </dd>
-            <dt>Работ в плане</dt>
-            <dd>{p.events.length}</dd>
-            {p.validationReport?.requiredServiceCount != null && <>
-              <dt>Обязательных работ по данным D2</dt>
-              <dd>{p.validationReport.requiredServiceCount}</dd>
-            </>}
-            {p.approvedBy && (
-              <>
-                <dt>Согласовал</dt>
-                <dd>{p.approvedBy}</dd>
-              </>
-            )}
+            <dt>Проверка D2</dt>
+            <dd>{ru(p.validationStatus)}</dd>
+            <dt>Версия данных</dt>
+            <dd title={p.snapshotHash}><code>{p.snapshotHash.slice(0, 12)}</code></dd>
           </dl>
+
+          {findings.length > 0 && (
+            <ul className="viol">
+              {findings.map((v, i) => (
+                <li key={i}>
+                  <span className={`badge ${v.severity}`}>{v.severity}</span> {v.message}
+                </li>
+              ))}
+            </ul>
+          )}
 
           {p.events.length > 0 && (
             <details>
@@ -154,26 +150,11 @@ export default function Planning({
             </details>
           )}
 
-          <h3>Результат проверки и диагностика</h3>
           {p.validationReport && <p className="muted">
-            Область: {p.validationReport.scope === 'E2_MODEL' ? 'модельный план E2' : p.validationReport.scope}.
+            Область проверки: {p.validationReport.scope === 'E2_MODEL' ? 'модельный план E2' : p.validationReport.scope}.
             {p.validationReport.ruleVersion && <> Версия правил: {p.validationReport.ruleVersion}.</>}
             {' '}Проверено {fmt(p.validationReport.checkedAt)}.
           </p>}
-          {p.validations.length === 0 ? (
-            <p className="muted">Критических замечаний нет. Статус D2: {p.validationStatus}.</p>
-          ) : (
-            <ul className="viol">
-              {p.validations.map((v, i) => (
-                <li key={i}>
-                  <span className={`badge ${v.severity}`}>{v.severity}</span> {v.code}: {v.message}
-                  {v.objectId && <span className="muted"> · объект {v.objectId}</span>}
-                  {v.startAt && v.endAt && <span className="muted"> · {fmt(v.startAt)}–{fmt(v.endAt)}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-
           {p.metrics && <>
             <h3>Показатели проверенного плана</h3>
             <p className="muted">ТО измерено в суммарных часах работ по составам. Это не коэффициент готовности парка и не фактически выполненные рейсы.</p>
@@ -196,26 +177,36 @@ export default function Planning({
             </table>
           </details>}
 
-          <form
-            className="row"
-            onSubmit={(e) => {
-              e.preventDefault()
-              approve.mutate()
-            }}
-          >
-            <input
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Комментарий (необязательно)"
-              aria-label="Комментарий"
-              disabled={!!blocked}
-            />
-            <button disabled={!!blocked || approve.isPending}>Согласовать</button>
-            <a href={`/api/v1/plans/${p.id}/export`} download>
+          {canApprove && p.status !== 'APPROVED' && (
+            <form
+              className="row approve"
+              onSubmit={(e) => {
+                e.preventDefault()
+                approve.mutate()
+              }}
+            >
+              <input
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Комментарий (необязательно)"
+                aria-label="Комментарий"
+                disabled={!!blocked}
+              />
+              <button disabled={!!blocked || approve.isPending}>
+                {approve.isPending ? 'Согласуем…' : 'Согласовать'}
+              </button>
+              <a className="btn-outline" href={`/api/v1/plans/${p.id}/export`} download>
+                Скачать CSV
+              </a>
+            </form>
+          )}
+          {!canApprove && p.status !== 'APPROVED' && <p className="muted">Согласует планировщик.</p>}
+          {canApprove && blocked && <p className="error">{blocked}</p>}
+          {(p.status === 'APPROVED' || !canApprove) && (
+            <p><a className="btn-outline" href={`/api/v1/plans/${p.id}/export`} download>
               Скачать CSV
-            </a>
-          </form>
-          {blocked && <p className="muted">{blocked}</p>}
+            </a></p>
+          )}
           {calendar.data && <PlanningCalendar data={calendar.data} />}
         </>
       )}
