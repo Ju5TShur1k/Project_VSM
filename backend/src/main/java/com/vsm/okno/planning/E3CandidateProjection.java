@@ -12,6 +12,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -71,13 +72,21 @@ public final class E3CandidateProjection {
         }
 
         Map<UUID, List<E3TripAssignmentLedger.AssignedTrip>> byTrain = new HashMap<>();
-        for (var trip : assignment.trips())
+        Set<UUID> changedTrains = new HashSet<>();
+        for (var trip : assignment.trips()) {
             byTrain.computeIfAbsent(trip.effectiveTrainId(), ignored -> new ArrayList<>()).add(trip);
+            if (!trip.plannedTrainId().equals(trip.effectiveTrainId())) {
+                changedTrains.add(trip.plannedTrainId());
+                changedTrains.add(trip.effectiveTrainId());
+            }
+        }
         List<OperationalConstraints.ServiceWindow> windows = new ArrayList<>();
         for (var trace : assignment.trains().values()) {
             UUID train = trace.trainId();
-            if (!Set.of("AVAILABLE", "IN_SERVICE", "RESERVE").contains(status.get(train))) {
-                // Depot/failed trains still need an explicit release fact from D1.
+            if (!changedTrains.contains(train)
+                    || !Set.of("AVAILABLE", "IN_SERVICE", "RESERVE").contains(status.get(train))) {
+                // Keep D1 evidence for unaffected trains. Depot/failed trains still
+                // need an explicit release fact before their windows can change.
                 source.operations().serviceWindows().stream()
                         .filter(window -> train.equals(window.trainId())).forEach(windows::add);
                 continue;

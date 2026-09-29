@@ -1,6 +1,7 @@
 package com.vsm.okno.planning;
 
 import com.vsm.okno.data.SourceSnapshotRepository.SourceSnapshot;
+import com.vsm.okno.data.SourceSnapshotE3Adapter;
 import com.vsm.okno.validation.PlanFingerprint;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,6 +31,9 @@ class E3RotationCandidateSearchTest {
         var ledger = new E3TripAssignmentLedger();
         var base = ledger.evaluate(saved, Map.of(), START, 55);
         var baseline = new E3CandidateProjection().project(saved, base, START, 55).snapshot();
+        assertEquals(Set.copyOf(new SourceSnapshotE3Adapter().project(saved).snapshot()
+                        .operations().serviceWindows()),
+                Set.copyOf(baseline.operations().serviceWindows()));
         assertEquals(1, E3FeasibilityAudit.blockedBlockIds(baseline).size());
 
         var found = new E3RotationCandidateSearch().search(saved, START, 55, 8);
