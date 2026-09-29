@@ -34,12 +34,18 @@ public class DatabasePlanningRepository {
     }
     @Transactional public Store.Scenario scenario(UUID id) {
         var saved=jdbc.query("select payload::text from vsm.api_scenario where id=?",(rs,n) -> json.readValue(rs.getString(1),Store.Scenario.class),id);
-        if (!saved.isEmpty()) return saved.getFirst();
+        if (!saved.isEmpty()) {
+            var s=saved.getFirst();
+            // Older materialized descendants may predate the full ancestry lookup.
+            if (s.planningUnsupportedReason==null) s.planningUnsupportedReason=inheritedUnsupportedReason(id);
+            return s;
+        }
         var version=versions.findVersion(id).orElseThrow(() -> missing("scenario",id));
         Store.Scenario s=new Store.Scenario(); s.id=id; s.createdAt=version.createdAt(); s.sourceSnapshotId=version.snapshotId();
         if (version.parentScenarioId()!=null) {
-            var parent=jdbc.query("select payload::text from vsm.api_scenario where id=?",(rs,n)->json.readValue(rs.getString(1),Store.Scenario.class),version.parentScenarioId());
-            if (!parent.isEmpty()) s.planningUnsupportedReason=parent.getFirst().planningUnsupportedReason;
+            // Source changes can create several revisions before anyone calculates.
+            // Resolve the parent from immutable versions even if no API cache exists yet.
+            s.planningUnsupportedReason=inheritedUnsupportedReason(id);
         }
         s.provenance=jdbc.queryForObject("select provenance from vsm.scenario where id=?",String.class,id);
         s.trains=jdbc.query("""
@@ -53,6 +59,19 @@ public class DatabasePlanningRepository {
         // E3 support is negotiated by the adapter owner, not inferred from fleet size here.
         jdbc.update("insert into vsm.api_scenario(id,payload) values (?,?::jsonb) on conflict(id) do nothing",id,json.writeValueAsString(s));
         return s;
+    }
+
+    private String inheritedUnsupportedReason(UUID id) {
+        // UNION also terminates if a malformed externally written ancestry contains a cycle.
+        return jdbc.query("""
+                with recursive ancestry as (
+                  select scenario_id,parent_scenario_id,version from vsm.scenario_version where scenario_id=?
+                  union
+                  select v.scenario_id,v.parent_scenario_id,v.version from vsm.scenario_version v
+                  join ancestry a on v.scenario_id=a.parent_scenario_id
+                ) select s.payload->>'planningUnsupportedReason' from ancestry a join vsm.api_scenario s on s.id=a.scenario_id
+                where s.payload->>'planningUnsupportedReason' is not null order by a.version desc limit 1
+                """,(rs,n)->rs.getString(1),id).stream().findFirst().orElse(null);
     }
 
     @Transactional public Store.PlanningJob enqueue(Parameters p,String actor,String key) {

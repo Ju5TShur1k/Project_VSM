@@ -37,6 +37,13 @@ public final class SourceSnapshotE3Adapter {
         require("d1-source-1.0".equals(text(root, "schemaVersion")), "payload version mismatch");
         require("pg-jsonb-text-v1".equals(text(root, "canonicalization")), "payload canonicalization mismatch");
         require(stored.scenarioId().equals(uuid(root, "scenarioId")), "payload scenario mismatch");
+        // This legacy projection cannot ignore a release gate or new work catalog.
+        // F2's joint E3 adapter will consume the explicit Task 1 extension.
+        for (String unsupported : List.of("trainReleases", "urgentWorkRules")) {
+            JsonNode facts = root.path(unsupported);
+            require(facts.isMissingNode() || (facts.isArray() && facts.isEmpty()),
+                    unsupported + " requires the joint E3 adapter; refusing to omit source facts");
+        }
         JsonNode urgent = root.path("urgentWorkRequirements");
         require(urgent.isMissingNode() || (urgent.isArray() && urgent.isEmpty()),
                 "urgentWorkRequirements need duration, resource and release rules before E3 planning");

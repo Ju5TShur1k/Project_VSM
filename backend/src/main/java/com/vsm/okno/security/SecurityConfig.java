@@ -40,6 +40,7 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/v1/scenarios/*/rule-versions").hasRole("TECHNOLOGIST")
+                        .requestMatchers(HttpMethod.POST,"/api/v1/scenarios/*/source-fact-versions").hasRole("TECHNOLOGIST")
                         .requestMatchers(HttpMethod.POST,"/api/v1/scenarios/*/requests").hasAnyRole("DISPATCHER","PLANNER")
                         .requestMatchers(HttpMethod.POST,"/api/v1/change-requests").hasAnyRole("DISPATCHER","PLANNER","TECHNOLOGIST")
                         .requestMatchers(HttpMethod.GET,"/api/v1/requests/**","/api/v1/change-requests/**","/api/v1/scenarios/**","/api/v1/planning-jobs/*").hasAnyRole("DISPATCHER","PLANNER","TECHNOLOGIST")
