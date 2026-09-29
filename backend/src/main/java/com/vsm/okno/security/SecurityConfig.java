@@ -48,6 +48,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/plans/*", "/api/v1/plans/*/calendar", "/api/v1/plans/*/export").authenticated()
                         // Only the planner signs a plan off.
                         .requestMatchers(HttpMethod.POST, "/api/v1/plans/*/approve").hasRole("PLANNER")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/source-snapshots/*/e3-full-draft").hasRole("PLANNER")
                         // Loading data and calculating: planner and technologist.
                         .anyRequest().hasAnyRole("PLANNER", "TECHNOLOGIST"))
                 .csrf(c -> c.spa())

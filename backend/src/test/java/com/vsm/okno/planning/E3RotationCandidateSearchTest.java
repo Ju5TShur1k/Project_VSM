@@ -4,6 +4,7 @@ import com.vsm.okno.data.SourceSnapshotRepository.SourceSnapshot;
 import com.vsm.okno.data.SourceSnapshotE3Adapter;
 import com.vsm.okno.validation.PlanFingerprint;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -127,7 +128,88 @@ class E3RotationCandidateSearchTest {
         assertEquals("NOT_RUN", bounded.maintenance().maintenanceSolverStatus());
     }
 
-    private static SourceSnapshot source() {
+    @Test
+    void cleaningRuleFromSavedSlotsCreatesMandatoryTrainOnlyBlock() {
+        SourceSnapshot saved = source(true);
+        var assignment = new E3TripAssignmentLedger().evaluate(saved, Map.of(), START, 55);
+        var base = new E3CandidateProjection().project(saved, assignment, START, 55).snapshot();
+        var cleaning = new com.vsm.okno.validation.E3CleaningCoverageAssessment()
+                .assess(saved, assignment, START, 55);
+        assertEquals(1, cleaning.missing().size());
+        var projected = new E3CleaningBlockProjector().add(saved, base, cleaning);
+        assertEquals(150, projected.sourceDurationMinutes());
+        assertEquals(1, projected.cleaningBlockIds().size());
+        var block = projected.snapshot().blocks().stream()
+                .filter(item -> item.id().equals(projected.cleaningBlockIds().getFirst()))
+                .findFirst().orElseThrow();
+        assertEquals(ScenarioSnapshot.ServiceBlock.Kind.CLEANING, block.kind());
+        assertTrue(block.resourceId().startsWith(E3CleaningBlockProjector.LOGICAL_RESOURCE_PREFIX));
+        assertEquals(150, block.durationMinutes());
+    }
+
+    @Test
+    void fullCandidateCombinesRotationsAndReturnsCalendarWithoutD2Approval() {
+        SourceSnapshot saved = source();
+        Planner witness = (snapshot, request) -> {
+            assertTrue(E3FeasibilityAudit.blockedBlockIds(snapshot).isEmpty());
+            var work = snapshot.blocks().getFirst();
+            return new PlannerResult("1.0", snapshot.scenarioId(), snapshot.snapshotHash(),
+                    request.policy(), PlannerResult.SolverStatus.FEASIBLE,
+                    List.of(new PlannerResult.PlannedBlock(work.id(), work.trainId(),
+                            work.resourceId(), START, START.plusHours(10))),
+                    List.of(), request.seed(), 1, 600.0);
+        };
+        var result = new E3JointFullPlanner(witness).plan(saved,
+                new E3JointFullPlanner.Input(START, 55, 2, 8, 1, 5));
+        assertEquals("MODEL_CANDIDATE_FOUND", result.searchStatus());
+        assertEquals(1, result.moves());
+        assertEquals("FEASIBLE", result.plan().modelSolverStatus());
+        assertEquals("PASS", result.plan().structuralStatus());
+        assertEquals("NOT_PERFORMED", result.plan().d2Status());
+        assertEquals(5, result.plan().calendar().events().size());
+        assertEquals(saved.snapshotHash(), result.plan().calendar().snapshotHash());
+        assertTrue(!result.plan().calendar().independentlyValidated());
+        var draft = new E3DraftPlanFactory().create(result);
+        assertEquals("DRAFT", draft.status);
+        assertEquals("NOT_PERFORMED", draft.validationStatus);
+        assertEquals("NOT_PERFORMED", draft.validationReport.status());
+        assertEquals(draft.id, new E3DraftPlanFactory().create(result).id);
+        assertEquals(saved.snapshotHash(), draft.calendar.snapshotHash());
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "e3RealSolver", matches = "true")
+    void realCpSatPlacesMaintenanceAndMissingCleaningWithoutD2Claims() {
+        SourceSnapshot maintenanceSource = source();
+        var rotation = new E3RotationCandidateSearch().search(maintenanceSource, START, 55, 8);
+        assertEquals("IMPROVING_ROTATION_FOUND", rotation.searchStatus());
+        var maintenance = new E3FullCandidateSolver(new CpSatPlanner()).solve(maintenanceSource,
+                new E3FullCandidateSolver.Input(START, 55,
+                        rotation.effectiveTrainByTrip(), 1, 10));
+        assertTrue(List.of("FEASIBLE", "OPTIMAL").contains(maintenance.modelSolverStatus()),
+                () -> maintenance.modelSolverStatus() + " " + maintenance.diagnostics());
+        assertEquals("PASS", maintenance.structuralStatus());
+        assertEquals("NOT_PERFORMED", maintenance.d2Status());
+
+        SourceSnapshot saved = source(true);
+        var solved = new E3FullCandidateSolver(new CpSatPlanner()).solve(saved,
+                new E3FullCandidateSolver.Input(START, 55,
+                        Map.of(id("trip-0"), id("reserve-0"),
+                                id("trip-1"), id("reserve-0")), 1, 10));
+        assertTrue(List.of("FEASIBLE", "OPTIMAL").contains(solved.modelSolverStatus()),
+                () -> solved.modelSolverStatus() + " " + solved.diagnostics());
+        assertEquals("PASS", solved.structuralStatus());
+        assertEquals("NOT_PERFORMED", solved.d2Status());
+        assertTrue(solved.requiredCleaningCount() > 0);
+        assertEquals(solved.requiredCleaningCount(), solved.calendar().events().stream()
+                .filter(event -> event.label().startsWith("Уборка"))
+                .count());
+    }
+
+    private static SourceSnapshot source() { return source(false); }
+
+    private static SourceSnapshot source(boolean withCleaningGap) {
+        OffsetDateTime end = withCleaningGap ? START.plusDays(3) : END;
         List<Object> trains = new ArrayList<>(), odometers = new ArrayList<>(), baselines = new ArrayList<>();
         List<Object> presence = new ArrayList<>(), occupancy = new ArrayList<>(), counters = new ArrayList<>();
         for (int index = -1; index < 4; index++) {
@@ -144,9 +226,9 @@ class E3RotationCandidateSearchTest {
                     "completed_trips_since_cleaning", 0, "confirmation_status", "SYNTHETIC"));
             if (index >= 0) {
                 presence.add(Map.of("train_id", train, "location", city, "starts_at", START,
-                        "ends_at", END, "confirmation_status", "SYNTHETIC", "source", "test reserve"));
+                        "ends_at", end, "confirmation_status", "SYNTHETIC", "source", "test reserve"));
                 occupancy.add(Map.of("id", id("occupancy-" + index), "train_id", train,
-                        "kind", "RESERVE", "starts_at", START, "ends_at", END,
+                        "kind", "RESERVE", "starts_at", START, "ends_at", end,
                         "confirmation_status", "SYNTHETIC", "source", "test reserve"));
             }
         }
@@ -158,18 +240,30 @@ class E3RotationCandidateSearchTest {
                 START.plusHours(17)));
         presence.add(presence(LINE, "MOSCOW", START.plusHours(20).plusMinutes(30),
                 START.plusDays(1).plusHours(5)));
-        List<Object> trips = List.of(
+        List<Object> trips = new ArrayList<>(List.of(
                 trip(0, "SPB_DEPOT", "MOSCOW", START.plusHours(6), START.plusHours(8)),
                 trip(1, "MOSCOW", "SPB_DEPOT", START.plusHours(12), START.plusHours(14)),
                 trip(2, "SPB_DEPOT", "MOSCOW", START.plusHours(18), START.plusHours(20)),
                 trip(3, "MOSCOW", "SPB_DEPOT", START.plusDays(1).plusHours(6),
-                        START.plusDays(1).plusHours(8)));
+                        START.plusDays(1).plusHours(8))));
+        if (withCleaningGap) {
+            trips.add(trip(4, "SPB_DEPOT", "MOSCOW", START.plusDays(1).plusHours(12),
+                    START.plusDays(1).plusHours(14)));
+            trips.add(trip(5, "MOSCOW", "SPB_DEPOT", START.plusDays(2).plusHours(6),
+                    START.plusDays(2).plusHours(8)));
+            trips.add(trip(6, "SPB_DEPOT", "MOSCOW", START.plusDays(2).plusHours(12),
+                    START.plusDays(2).plusHours(14)));
+            occupancy.add(Map.of("id", id("cleaning-template"), "train_id", LINE,
+                    "kind", "CLEANING", "starts_at", START,
+                    "ends_at", START.plusMinutes(150), "confirmation_status", "SYNTHETIC",
+                    "source", "synthetic source duration"));
+        }
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("schemaVersion", "d1-source-1.0");
         root.put("canonicalization", "pg-jsonb-text-v1");
         root.put("scenarioId", SCENARIO);
         root.put("scenario", Map.of("id", SCENARIO, "rule_set_id", RULE,
-                "provenance", "synthetic rotation test", "horizon_start", START, "horizon_end", END));
+                "provenance", "synthetic rotation test", "horizon_start", START, "horizon_end", end));
         root.put("trains", trains);
         root.put("odometerReadings", odometers);
         root.put("cycleBaselines", baselines);
@@ -183,8 +277,8 @@ class E3RotationCandidateSearchTest {
         root.put("resources", List.of(Map.of("id", "SPB-PATH", "location", "SPB_DEPOT"),
                 Map.of("id", "MOS-PATH", "location", "MOSCOW")));
         root.put("resourceAvailability", List.of(Map.of("resource_id", "SPB-PATH",
-                "starts_at", START, "ends_at", END, "source", "test"),
-                Map.of("resource_id", "MOS-PATH", "starts_at", START, "ends_at", END,
+                "starts_at", START, "ends_at", end, "source", "test"),
+                Map.of("resource_id", "MOS-PATH", "starts_at", START, "ends_at", end,
                         "source", "test")));
         root.put("cycleResources", List.of(Map.of("rule_set_id", RULE, "cycle_code", "IS5000",
                 "resource_id", "SPB-PATH")));

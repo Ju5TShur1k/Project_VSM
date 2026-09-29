@@ -130,6 +130,27 @@ public class DatabasePlanningRepository {
                 p.id,p.scenarioId,snapshot,p.snapshotHash,p.version,p.status,payload);
         jdbc.update("insert into vsm.plan_history(plan_id,version,actor,reason,payload) values (?,?,?,?,?::jsonb)",p.id,p.version,actor,reason,payload);
     }
+    /** Stores an E3 model candidate as a reviewable draft; the approval gate still requires D2 PASS. */
+    @Transactional public Store.Plan saveE3Draft(Store.Plan draft, UUID snapshotId, String actor) {
+        if (draft == null || draft.id == null || snapshotId == null || actor == null
+                || !"DRAFT".equals(draft.status) || !"NOT_PERFORMED".equals(draft.validationStatus)
+                || draft.calendar == null || draft.calendar.independentlyValidated()
+                || !draft.snapshotHash.equals(draft.calendar.snapshotHash()))
+            throw new IllegalArgumentException("invalid non-approvable E3 draft");
+        versions.assertCurrent(draft.scenarioId, draft.snapshotHash);
+        scenario(draft.scenarioId); // Ensure the exact D1 version has an API scenario FK.
+        jdbc.queryForObject("select pg_advisory_xact_lock(hashtextextended(?,0))",Object.class,
+                "e3-draft:"+draft.id);
+        var existing=jdbc.queryForList("select id from vsm.plan where id=?",UUID.class,draft.id);
+        if (!existing.isEmpty()) return plan(draft.id);
+        persistPlan(draft,snapshotId,actor,"E3 model candidate; D2 not performed");
+        UUID root=versions.version(draft.scenarioId).rootId();
+        jdbc.update("""
+                insert into vsm.plan_selection(root_id,latest_draft_id) values (?,?)
+                on conflict(root_id) do update set latest_draft_id=excluded.latest_draft_id,updated_at=now()
+                """,root,draft.id);
+        return draft;
+    }
     public Store.Plan plan(UUID id) { return loadPlan(id,false); }
     private Store.Plan loadPlan(UUID id,boolean lock) {
         return jdbc.query("select payload::text from vsm.plan where id=?"+(lock?" for update":""),

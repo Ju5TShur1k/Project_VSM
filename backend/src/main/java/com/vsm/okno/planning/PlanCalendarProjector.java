@@ -36,11 +36,15 @@ public final class PlanCalendarProjector {
             var covers = obligation == null ? null : obligation.covers().stream()
                     .map(c -> c.code() + "@" + c.nominalKm()).toList();
             events.add(new Dto.CalendarEvent(placed.blockId(), "SERVICE", placed.trainId(),
-                    placed.resourceId(), obligation == null ? "Работа · " + block.durationMinutes() + " мин"
+                    placed.resourceId(), obligation == null
+                            ? (block.kind() == ScenarioSnapshot.ServiceBlock.Kind.CLEANING ? "Уборка · "
+                            : "Работа · ") + block.durationMinutes() + " мин"
                             : obligation.cycleCode() + " · " + block.durationMinutes() + " мин",
                     placed.startAt().toString(), placed.endAt().toString(),
                     obligation == null ? source.provenance() : obligation.ruleSource(),
-                    obligation == null ? "Слот найден планировщиком в допустимом окне."
+                    obligation == null ? (block.kind() == ScenarioSnapshot.ServiceBlock.Kind.CLEANING
+                            ? "Уборка после четвёртого рейса и до следующего отправления; мощность бригады в D1 не задана."
+                            : "Слот найден планировщиком в допустимом окне.")
                             : "Работа размещена после достижения пробега " + obligation.releaseOdometerKm()
                             + " км, до ограничения " + obligation.dueOdometerKm()
                             + " км, с учётом рейсов и доступности пути.",

@@ -27,6 +27,8 @@ public final class E3RotationCandidateSearch {
     }
     private record Reserve(UUID id, String city) {}
     private record Scored(Map<UUID, UUID> changes, int blocked) {}
+    private record Proposal(UUID blockedId, int first, int last, Reserve reserve,
+                            int overlapMinutes, int tripCount) {}
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -73,46 +75,73 @@ public final class E3RotationCandidateSearch {
         Map<UUID, ScenarioSnapshot.ServiceBlock> blockById = new HashMap<>();
         for (var block : initial.blocks()) blockById.put(block.id(), block);
 
-        Scored best = null;
-        int evaluated = 0;
+        // Work near the end of the horizon used to be starved by the first 32
+        // chronological rotations. Rank complete return rotations by the time
+        // they free inside the blocked work's own window, then share the bounded
+        // evaluation budget among distinct blocked trains.
+        List<List<Proposal>> proposals = new ArrayList<>();
         for (UUID blockedId : blockedIds) {
             var work = blockById.get(blockedId);
             var trips = byTrain.getOrDefault(work.trainId(), List.of());
-            for (int first = 0; first < trips.size() && evaluated < maxEvaluations; first++) {
+            List<Proposal> forWork = new ArrayList<>();
+            for (int first = 0; first < trips.size(); first++) {
                 var leading = trips.get(first);
+                int start = minute(initial, leading.departureAt());
                 if (leading.departureAt().isBefore(frozenUntil)
-                        || minute(initial, leading.departureAt()) > work.latestEndMinute()) continue;
-                // Only a complete return rotation leaves the original train in
-                // the right city for its following fixed departure.
-                for (int last = first + 1; last < Math.min(trips.size(), first + 6)
-                        && evaluated < maxEvaluations; last++) {
+                        || start > work.latestEndMinute() - work.durationMinutes()) continue;
+                // A long IS530/IS540 can need more than two days of transferred
+                // trips. The full rotation must still return to its first city.
+                for (int last = first + 1; last < Math.min(trips.size(), first + 24); last++) {
                     var trailing = trips.get(last);
+                    int end = minute(initial, trailing.arrivalAt());
                     if (!leading.origin().equals(trailing.destination())
-                            || minute(initial, trailing.arrivalAt()) < work.earliestStartMinute()) continue;
-                    for (Reserve reserve : reserves) {
-                        if (evaluated >= maxEvaluations) break;
-                        if (!reserve.city().equals(leading.origin())) continue;
-                        Map<UUID, UUID> changes = new HashMap<>(currentAssignments);
-                        for (int index = first; index <= last; index++)
-                            changes.put(trips.get(index).id(), reserve.id());
-                        if (changes.equals(currentAssignments)) continue;
-                        evaluated++;
-                        try {
-                            var assignment = ledger.evaluate(saved, changes, frozenUntil, preparationMinutes);
-                            var projected = projector.project(saved, source, assignment,
-                                    frozenUntil, preparationMinutes).snapshot();
-                            int remaining = E3FeasibilityAudit.blockedBlockIds(projected).size();
-                            if (remaining < blockedIds.size() && (best == null || remaining < best.blocked()
-                                    || (remaining == best.blocked()
-                                    && changes.size() < best.changes().size())))
-                                best = new Scored(Map.copyOf(changes), remaining);
-                        } catch (IllegalArgumentException rejected) {
-                            // Ledger, mileage audit or source evidence rejected this rotation.
-                        }
-                    }
+                            || end < work.earliestStartMinute() + work.durationMinutes()) continue;
+                    int overlap = Math.min(end, work.latestEndMinute())
+                            - Math.max(start, work.earliestStartMinute());
+                    // Existing free time directly before or after this rotation
+                    // can complete the maintenance interval, so overlap is a
+                    // ranking hint and not a validity condition.
+                    for (Reserve reserve : reserves) if (reserve.city().equals(leading.origin()))
+                        forWork.add(new Proposal(blockedId, first, last, reserve,
+                                overlap, last - first + 1));
                 }
             }
-            if (evaluated >= maxEvaluations) break;
+            forWork.sort(Comparator.comparingInt(Proposal::overlapMinutes).reversed()
+                    .thenComparingInt(Proposal::tripCount)
+                    .thenComparing(Proposal::first)
+                    .thenComparing(p -> p.reserve().id()));
+            if (!forWork.isEmpty()) proposals.add(forWork);
+        }
+        Scored best = null;
+        int evaluated = 0;
+        for (int rank = 0; evaluated < maxEvaluations; rank++) {
+            boolean anyAtRank = false;
+            for (List<Proposal> forWork : proposals) {
+                if (rank >= forWork.size()) continue;
+                anyAtRank = true;
+                var proposal = forWork.get(rank);
+                var work = blockById.get(proposal.blockedId());
+                var trips = byTrain.get(work.trainId());
+                Map<UUID, UUID> changes = new HashMap<>(currentAssignments);
+                for (int index = proposal.first(); index <= proposal.last(); index++)
+                    changes.put(trips.get(index).id(), proposal.reserve().id());
+                if (changes.equals(currentAssignments)) continue;
+                evaluated++;
+                try {
+                    var assignment = ledger.evaluate(saved, changes, frozenUntil, preparationMinutes);
+                    var projected = projector.project(saved, source, assignment,
+                            frozenUntil, preparationMinutes).snapshot();
+                    int remaining = E3FeasibilityAudit.blockedBlockIds(projected).size();
+                    if (remaining < blockedIds.size() && (best == null || remaining < best.blocked()
+                            || (remaining == best.blocked()
+                            && changes.size() < best.changes().size())))
+                        best = new Scored(Map.copyOf(changes), remaining);
+                } catch (IllegalArgumentException rejected) {
+                    // Ledger, mileage audit or source evidence rejected this rotation.
+                }
+                if (evaluated >= maxEvaluations) break;
+            }
+            if (!anyAtRank) break;
         }
         if (best == null) return result(saved, "NO_IMPROVING_ROTATION", evaluated,
                 blockedIds.size(), currentAssignments, original, frozenUntil, preparationMinutes);

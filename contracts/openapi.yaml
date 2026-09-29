@@ -268,6 +268,33 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  /source-snapshots/{id}/e3-full-draft:
+    post:
+      summary: Search reassigned trips, maintenance and missing cleanings together
+      description: Database profile and planner role only. A feasible structural candidate is saved as a DRAFT with a calculated calendar. Independent full D2 remains NOT_PERFORMED, so the server refuses approval. If the bounded search cannot find a candidate, planId is null and diagnostics explain the blocker. The immutable source snapshot hash is never replaced by a UI example.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/E3FullDraftInput' }
+      responses:
+        '200':
+          description: Explicit search, model and D2 statuses; planId only for a saved candidate
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/E3FullDraftResult' }
+        '404':
+          description: Snapshot not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: Invalid parameters, stale snapshot or unsupported source facts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   /scenarios/{id}:
     get:
       summary: Get scenario snapshot
@@ -1107,6 +1134,40 @@ components:
           type: object
           additionalProperties: { type: string, format: uuid }
         maintenance: { $ref: '#/components/schemas/E3MaintenanceCandidateResult' }
+    E3FullDraftInput:
+      type: object
+      required: [frozenUntil, preparationMinutes, maxMoves, maxEvaluationsPerMove, seed, timeLimitSec]
+      properties:
+        frozenUntil: { type: string, format: date-time }
+        preparationMinutes: { type: integer, minimum: 0, maximum: 1440 }
+        maxMoves: { type: integer, minimum: 0, maximum: 20 }
+        maxEvaluationsPerMove: { type: integer, minimum: 1, maximum: 32 }
+        seed: { type: integer }
+        timeLimitSec: { type: integer, minimum: 1, maximum: 60 }
+    E3FullDraftResult:
+      type: object
+      required: [sourceSnapshotId, snapshotHash, searchStatus, moves, tripCount, changedTripCount, requiredCleaningCount, placedBlockCount, modelSolverStatus, structuralStatus, d2Status, effectiveTrainByTrip, diagnostics, reserve, cleaning]
+      properties:
+        planId: { type: string, format: uuid, nullable: true }
+        sourceSnapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        searchStatus: { type: string, enum: [MODEL_CANDIDATE_FOUND, MODEL_SOLVER_INFEASIBLE, MODEL_SOLVER_UNKNOWN, MODEL_SOLVER_MODEL_INVALID, MOVE_LIMIT_REACHED, NO_FIXED_WINDOW_BLOCKER, NO_IMPROVING_ROTATION, CLEANING_SOURCE_OR_WINDOW_BLOCKED] }
+        moves: { type: integer }
+        tripCount: { type: integer }
+        changedTripCount: { type: integer }
+        requiredCleaningCount: { type: integer }
+        placedBlockCount: { type: integer }
+        modelSolverStatus: { type: string, enum: [NOT_RUN, FEASIBLE, OPTIMAL, INFEASIBLE, UNKNOWN, MODEL_INVALID] }
+        structuralStatus: { type: string, enum: [NOT_PERFORMED, PASS, FAILED] }
+        d2Status: { type: string, const: NOT_PERFORMED }
+        effectiveTrainByTrip:
+          type: object
+          additionalProperties: { type: string, format: uuid }
+        diagnostics:
+          type: array
+          items: { $ref: '#/components/schemas/E3Assessment/properties/blockers/items' }
+        reserve: { $ref: '#/components/schemas/E3CandidateAssessment/properties/reserve' }
+        cleaning: { $ref: '#/components/schemas/E3CandidateAssessment/properties/cleaning' }
     E3CandidateAssessment:
       type: object
       required: [scenarioId, sourceSnapshotId, snapshotHash, tripCount, changedTripCount, mileageObligationCount, mileageStatus, solverStatus, d2Status, reserve, cleaning, blockers]
