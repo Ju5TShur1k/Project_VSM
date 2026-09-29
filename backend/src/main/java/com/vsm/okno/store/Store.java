@@ -1,6 +1,8 @@
 package com.vsm.okno.store;
 
 import com.vsm.okno.dto.Dto;
+import com.vsm.okno.validation.ValidationReport;
+import com.vsm.okno.validation.PlanMetrics;
 
 import java.time.Instant;
 import java.util.List;
@@ -53,6 +55,8 @@ public class Store {
         public String snapshotHash;
         public String solverStatus;
         public String validationStatus;
+        public ValidationReport validationReport;
+        public PlanMetrics metrics;
         public Dto.PlanCalendar calendar;
     }
 }

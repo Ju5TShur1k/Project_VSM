@@ -39,4 +39,9 @@ public class SourceSnapshotRepository {
         return jdbc.query("select * from vsm.scenario_snapshot where id = ?", MAPPER, snapshotId)
                 .stream().findFirst();
     }
+
+    public Optional<SourceSnapshot> findByScenarioAndHash(UUID scenarioId, String hash) {
+        return jdbc.query("select * from vsm.scenario_snapshot where scenario_id = ? and snapshot_hash = ?",
+                MAPPER, scenarioId, hash).stream().findFirst();
+    }
 }

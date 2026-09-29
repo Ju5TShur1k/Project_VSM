@@ -3,6 +3,8 @@ package com.vsm.okno.dto;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import com.vsm.okno.validation.ValidationReport;
+import com.vsm.okno.validation.PlanMetrics;
 
 // Hand-written to match contracts/openapi.yaml — that file is the source of
 // truth, keep both in sync manually when the contract changes.
@@ -47,12 +49,17 @@ public final class Dto {
             UUID id, UUID trainId, String kind, String startAt, String endAt, List<String> resourceIds
     ) {}
 
-    public record Validation(String code, String severity, String message) {}
+    public record Validation(String code, String severity, String message,
+                             String objectId, String startAt, String endAt) {
+        public Validation(String code, String severity, String message) {
+            this(code, severity, message, null, null, null);
+        }
+    }
 
     public record Plan(
             UUID id, UUID scenarioId, int version, String status,
             List<PlanEvent> events, List<Validation> validations, String approvedBy,
-            String snapshotHash, String validationStatus
+            String snapshotHash, String validationStatus, ValidationReport validationReport, PlanMetrics metrics
     ) {}
 
     public record CalendarEvent(UUID id, String kind, UUID trainId, String resourceId,

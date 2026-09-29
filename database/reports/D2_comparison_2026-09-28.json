@@ -1,0 +1,352 @@
+{
+  "schemaVersion" : "d2-comparison-1.0",
+  "generatedAt" : "2026-09-28T19:12:34.947993800Z",
+  "dataProvenance" : "MODELLED; case numeric norms, not operator records",
+  "readinessKpi" : "Not calculated: business formula not confirmed",
+  "javaVersion" : "21.0.10",
+  "os" : "Windows 11",
+  "buildCommit" : "c1c30c8 + uncommitted D2 changes",
+  "rows" : [ {
+    "dataset" : "E2_6",
+    "scenarioId" : "2f2ecb4f-ac56-0e8b-b052-5b4723c3fe51",
+    "sourceSnapshotId" : "e2bdce05-37e1-5926-d5b4-69f9f7937ffe",
+    "snapshotHash" : "567e5d3e6acea2126ac40c5177dc0aa0e2f6c243347400b68055ec33b9bcb553",
+    "policy" : "WHOLE_CYCLE_EDD",
+    "seed" : 42,
+    "timeLimitSeconds" : 10,
+    "solverStatus" : "FEASIBLE",
+    "elapsedMillis" : 30,
+    "d2Status" : "PASS",
+    "validationScope" : "E2_MODEL",
+    "resultHash" : "bd98ad447af40b8f2287efecdf0da12d3b3c3fb42bd1b8c41ece15faf34b87df",
+    "requiredServiceCount" : 12,
+    "placedServiceCount" : 12,
+    "metrics" : {
+      "scope" : "E2_MODEL",
+      "scheduledTripCount" : 252,
+      "conflictingTripCount" : 0,
+      "requiredServiceCount" : 12,
+      "placedServiceCount" : 12,
+      "missingServiceCount" : 0,
+      "trainServiceMinutes" : 2160,
+      "makespanMinutes" : 17310,
+      "peakConcurrentService" : 1,
+      "resourceLoads" : [ {
+        "resourceId" : "SPB-PATH-1",
+        "busyMinutes" : 2160,
+        "horizonSharePercent" : 10.714285714285714
+      } ]
+    },
+    "pendingMilestones" : [ {
+      "trainId" : "27694adc-4504-bb9c-1d84-98022922a7fb",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 6860
+    }, {
+      "trainId" : "27694adc-4504-bb9c-1d84-98022922a7fb",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 19360
+    }, {
+      "trainId" : "66665ea3-e9a4-69a0-9229-60f6570d148c",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 5360
+    }, {
+      "trainId" : "66665ea3-e9a4-69a0-9229-60f6570d148c",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 17860
+    }, {
+      "trainId" : "9f5b713f-e5bb-8874-ad45-fa8e09afb1b7",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 4360
+    }, {
+      "trainId" : "9f5b713f-e5bb-8874-ad45-fa8e09afb1b7",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 4360
+    }, {
+      "trainId" : "e590bd1a-ba76-73e0-602b-b449c5b312cd",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 8360
+    }, {
+      "trainId" : "e590bd1a-ba76-73e0-602b-b449c5b312cd",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 20860
+    }, {
+      "trainId" : "e7a079ac-92ab-0cb5-6eb6-212304965948",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 2860
+    }, {
+      "trainId" : "e7a079ac-92ab-0cb5-6eb6-212304965948",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 2860
+    }, {
+      "trainId" : "f317604a-182b-2cc9-2d7b-1082924d5460",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 6360
+    }, {
+      "trainId" : "f317604a-182b-2cc9-2d7b-1082924d5460",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 6360
+    } ],
+    "criticalCodes" : [ ]
+  }, {
+    "dataset" : "E2_6",
+    "scenarioId" : "2f2ecb4f-ac56-0e8b-b052-5b4723c3fe51",
+    "sourceSnapshotId" : "e2bdce05-37e1-5926-d5b4-69f9f7937ffe",
+    "snapshotHash" : "567e5d3e6acea2126ac40c5177dc0aa0e2f6c243347400b68055ec33b9bcb553",
+    "policy" : "WHOLE_CYCLE_CP_SAT",
+    "seed" : 42,
+    "timeLimitSeconds" : 10,
+    "solverStatus" : "OPTIMAL",
+    "elapsedMillis" : 14,
+    "d2Status" : "PASS",
+    "validationScope" : "E2_MODEL",
+    "resultHash" : "67b4e727792b0f0a3e91c741f5a229bcf6ba02508d302f7ca2bbda1fc0bd19db",
+    "requiredServiceCount" : 12,
+    "placedServiceCount" : 12,
+    "metrics" : {
+      "scope" : "E2_MODEL",
+      "scheduledTripCount" : 252,
+      "conflictingTripCount" : 0,
+      "requiredServiceCount" : 12,
+      "placedServiceCount" : 12,
+      "missingServiceCount" : 0,
+      "trainServiceMinutes" : 2160,
+      "makespanMinutes" : 17310,
+      "peakConcurrentService" : 1,
+      "resourceLoads" : [ {
+        "resourceId" : "SPB-PATH-1",
+        "busyMinutes" : 2160,
+        "horizonSharePercent" : 10.714285714285714
+      } ]
+    },
+    "pendingMilestones" : [ {
+      "trainId" : "27694adc-4504-bb9c-1d84-98022922a7fb",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 6860
+    }, {
+      "trainId" : "27694adc-4504-bb9c-1d84-98022922a7fb",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 19360
+    }, {
+      "trainId" : "66665ea3-e9a4-69a0-9229-60f6570d148c",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 5360
+    }, {
+      "trainId" : "66665ea3-e9a4-69a0-9229-60f6570d148c",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 17860
+    }, {
+      "trainId" : "9f5b713f-e5bb-8874-ad45-fa8e09afb1b7",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 4360
+    }, {
+      "trainId" : "9f5b713f-e5bb-8874-ad45-fa8e09afb1b7",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 4360
+    }, {
+      "trainId" : "e590bd1a-ba76-73e0-602b-b449c5b312cd",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 8360
+    }, {
+      "trainId" : "e590bd1a-ba76-73e0-602b-b449c5b312cd",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 20860
+    }, {
+      "trainId" : "e7a079ac-92ab-0cb5-6eb6-212304965948",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 2860
+    }, {
+      "trainId" : "e7a079ac-92ab-0cb5-6eb6-212304965948",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 2860
+    }, {
+      "trainId" : "f317604a-182b-2cc9-2d7b-1082924d5460",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 6360
+    }, {
+      "trainId" : "f317604a-182b-2cc9-2d7b-1082924d5460",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 6360
+    } ],
+    "criticalCodes" : [ ]
+  }, {
+    "dataset" : "BLOCKED6",
+    "scenarioId" : "d40afa0c-9b7e-207a-1f4d-b930f0e7a0c5",
+    "sourceSnapshotId" : "81e5d397-72d5-eac7-1ee3-d9bc2a3fb801",
+    "snapshotHash" : "61f2b211c419ceb156fb2397040ce5c00a1d1618e59d736fd4784b971f364619",
+    "policy" : "WHOLE_CYCLE_EDD",
+    "seed" : 42,
+    "timeLimitSeconds" : 10,
+    "solverStatus" : "UNKNOWN",
+    "elapsedMillis" : 1,
+    "d2Status" : "FAILED",
+    "validationScope" : "E2_MODEL",
+    "resultHash" : "8d57ca610a8736c2e645d99583e06c59b96e13d25565f30bd78bfc72c9c146b7",
+    "requiredServiceCount" : 12,
+    "placedServiceCount" : 0,
+    "metrics" : null,
+    "pendingMilestones" : [ {
+      "trainId" : "313c4196-d47f-73bd-3b70-5f195dc39425",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 8360
+    }, {
+      "trainId" : "313c4196-d47f-73bd-3b70-5f195dc39425",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 20860
+    }, {
+      "trainId" : "922258fd-3cf7-85c2-7556-302d2f6bdde4",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 4360
+    }, {
+      "trainId" : "922258fd-3cf7-85c2-7556-302d2f6bdde4",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 4360
+    }, {
+      "trainId" : "bd6f69a9-8aee-dd4a-47f8-220fd765b0fe",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 5360
+    }, {
+      "trainId" : "bd6f69a9-8aee-dd4a-47f8-220fd765b0fe",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 17860
+    }, {
+      "trainId" : "d284e89e-2e93-544c-8fb5-36fdd49f0437",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 2860
+    }, {
+      "trainId" : "d284e89e-2e93-544c-8fb5-36fdd49f0437",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 2860
+    }, {
+      "trainId" : "d2bd9d98-8e5e-f334-99c9-f9914db6dee6",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 6360
+    }, {
+      "trainId" : "d2bd9d98-8e5e-f334-99c9-f9914db6dee6",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 6360
+    }, {
+      "trainId" : "f08754dd-f5c1-2631-c71f-62a1d7b3f7b2",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 6860
+    }, {
+      "trainId" : "f08754dd-f5c1-2631-c71f-62a1d7b3f7b2",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 19360
+    } ],
+    "criticalCodes" : [ "NO_FEASIBLE_RESULT" ]
+  }, {
+    "dataset" : "BLOCKED6",
+    "scenarioId" : "d40afa0c-9b7e-207a-1f4d-b930f0e7a0c5",
+    "sourceSnapshotId" : "81e5d397-72d5-eac7-1ee3-d9bc2a3fb801",
+    "snapshotHash" : "61f2b211c419ceb156fb2397040ce5c00a1d1618e59d736fd4784b971f364619",
+    "policy" : "WHOLE_CYCLE_CP_SAT",
+    "seed" : 42,
+    "timeLimitSeconds" : 10,
+    "solverStatus" : "INFEASIBLE",
+    "elapsedMillis" : 2,
+    "d2Status" : "FAILED",
+    "validationScope" : "E2_MODEL",
+    "resultHash" : "8d57ca610a8736c2e645d99583e06c59b96e13d25565f30bd78bfc72c9c146b7",
+    "requiredServiceCount" : 12,
+    "placedServiceCount" : 0,
+    "metrics" : null,
+    "pendingMilestones" : [ {
+      "trainId" : "313c4196-d47f-73bd-3b70-5f195dc39425",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 8360
+    }, {
+      "trainId" : "313c4196-d47f-73bd-3b70-5f195dc39425",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 20860
+    }, {
+      "trainId" : "922258fd-3cf7-85c2-7556-302d2f6bdde4",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 4360
+    }, {
+      "trainId" : "922258fd-3cf7-85c2-7556-302d2f6bdde4",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 4360
+    }, {
+      "trainId" : "bd6f69a9-8aee-dd4a-47f8-220fd765b0fe",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 5360
+    }, {
+      "trainId" : "bd6f69a9-8aee-dd4a-47f8-220fd765b0fe",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 17860
+    }, {
+      "trainId" : "d284e89e-2e93-544c-8fb5-36fdd49f0437",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 2860
+    }, {
+      "trainId" : "d284e89e-2e93-544c-8fb5-36fdd49f0437",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 2860
+    }, {
+      "trainId" : "d2bd9d98-8e5e-f334-99c9-f9914db6dee6",
+      "cycleCode" : "IS100",
+      "nominalKm" : 50000,
+      "remainingKm" : 6360
+    }, {
+      "trainId" : "d2bd9d98-8e5e-f334-99c9-f9914db6dee6",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 6360
+    }, {
+      "trainId" : "f08754dd-f5c1-2631-c71f-62a1d7b3f7b2",
+      "cycleCode" : "IS100",
+      "nominalKm" : 37500,
+      "remainingKm" : 6860
+    }, {
+      "trainId" : "f08754dd-f5c1-2631-c71f-62a1d7b3f7b2",
+      "cycleCode" : "IS200",
+      "nominalKm" : 50000,
+      "remainingKm" : 19360
+    } ],
+    "criticalCodes" : [ "NO_FEASIBLE_RESULT" ]
+  } ]
+}

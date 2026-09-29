@@ -151,11 +151,13 @@ class CaseFleetIntegrationTest {
         assertEquals("SUCCEEDED",job.get("status").asText());
         var plan=api.plan(job);
         assertEquals(loaded.get("source").get("snapshotHash").asText(),plan.get("snapshotHash").asText());
-        assertEquals("NOT_PERFORMED",plan.get("validationStatus").asText());
+        assertEquals("PASS",plan.get("validationStatus").asText(),plan.toString());
+        assertEquals("E2_MODEL",plan.get("validationReport").get("scope").asText());
+        assertEquals(2160,plan.get("metrics").get("trainServiceMinutes").asInt());
         var calendar=api.getJson("/api/v1/plans/"+plan.get("id").asText()+"/calendar");
         long trips=0; for(var event:calendar.get("events")) if(event.get("kind").asText().equals("TRIP")) trips++;
         assertEquals(252,trips);
-        api.postJson("/api/v1/plans/"+plan.get("id").asText()+"/approve","{\"expectedVersion\":0}",422);
+        api.postJson("/api/v1/plans/"+plan.get("id").asText()+"/approve","{\"expectedVersion\":0}",200);
         var full=api.postJson("/api/v1/demo/case-source?dataset=FULL43","{}",201);
         assertEquals(43,full.get("trainCount").asInt());
         api.postJson("/api/v1/planning-jobs",PlannerApi.jobBody(full.get("source").get("scenarioId").asText(),"unsupported"),422);

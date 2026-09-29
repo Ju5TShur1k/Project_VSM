@@ -302,7 +302,88 @@ paths:
             text/csv:
               schema: { type: string }
 
+  /scenarios/{id}/operations:
+    post:
+      summary: Start a persisted FULL43 advisory operational day
+      description: Database profile only. Captures an immutable modelled source; does not authorize full E3 maintenance or actual release.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '201':
+          description: Initial operational board
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryBoard' }
+        '404': { description: Unknown scenario }
+        '422': { description: Unsupported source or rules }
+  /operations/{id}:
+    get:
+      summary: Restore current operational board from PostgreSQL
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { $ref: '#/components/responses/RecoveryUpdated' }
+        '404': { description: Unknown session }
+  /operations/{id}/failures:
+    post:
+      summary: Withdraw a train before its next departure in this modelled day
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FailureRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/RecoveryUpdated' }
+        '409': { description: Stale expectedVersion }
+        '422': { description: Invalid failure, time, or missing expectedVersion }
+  /operations/{id}/replacements:
+    post:
+      summary: Recheck and assign an eligible reserve to the remaining daily turn
+      description: Operator decision; preserves times, route and paired slot. Reserve shortage is visible and does not silently forbid dispatch. No cross-city teleportation.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReplacementRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/RecoveryUpdated' }
+        '409': { description: Stale expectedVersion }
+        '422': { description: Ineligible candidate or invalid request }
+  /operations/{id}/releases:
+    post:
+      summary: Record explicit modelled repair completion and acceptance into reserve
+      description: Repair forecast is not acceptance. Original withdrawn trips are never automatically reassigned.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReleaseRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/RecoveryUpdated' }
+        '409': { description: Stale expectedVersion }
+        '422': { description: Invalid acceptance, location or time }
+  /operations/{id}/clock:
+    post:
+      summary: Advance modelled time without inventing repair acceptance
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClockRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/RecoveryUpdated' }
+        '409': { description: Stale expectedVersion }
+        '422': { description: Time reversal, out of horizon or invalid request }
+
 components:
+  responses:
+    RecoveryUpdated:
+      description: Current persisted advisory board; version and canonical stateHash identify this revision
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/RecoveryBoard' }
   parameters:
     Id:
       name: id
@@ -310,6 +391,133 @@ components:
       required: true
       schema: { type: string, format: uuid }
   schemas:
+    FailureRequest:
+      type: object
+      required: [expectedVersion, tripId, occurredAt, description]
+      properties:
+        expectedVersion: { type: integer, minimum: 0 }
+        tripId: { type: string, format: uuid }
+        occurredAt: { type: string, format: date-time }
+        expectedRepairAt: { type: [string, 'null'], format: date-time }
+        description: { type: string, minLength: 1, maxLength: 1000 }
+    ReplacementRequest:
+      type: object
+      required: [expectedVersion, faultId, trainId]
+      properties:
+        expectedVersion: { type: integer, minimum: 0 }
+        faultId: { type: string, format: uuid }
+        trainId: { type: string, format: uuid }
+    ReleaseRequest:
+      type: object
+      required: [expectedVersion, faultId, repairCompletedAt, acceptedAt, location, acceptanceReference]
+      properties:
+        expectedVersion: { type: integer, minimum: 0 }
+        faultId: { type: string, format: uuid }
+        repairCompletedAt: { type: string, format: date-time }
+        acceptedAt: { type: string, format: date-time }
+        location: { type: string }
+        acceptanceReference: { type: string, minLength: 1, maxLength: 200 }
+    ClockRequest:
+      type: object
+      required: [expectedVersion, asOf]
+      properties:
+        expectedVersion: { type: integer, minimum: 0 }
+        asOf: { type: string, format: date-time }
+    RecoveryCandidate:
+      type: object
+      required: [trainId, externalId, location, eligible, reasons]
+      properties:
+        trainId: { type: string, format: uuid }
+        externalId: { type: string }
+        location: { type: string }
+        eligible: { type: boolean }
+        reasons: { type: array, items: { type: string } }
+    RecoveryTrain:
+      type: object
+      required: [id, externalId, status, location, mileageKm, readinessEvidence]
+      properties:
+        id: { type: string, format: uuid }
+        externalId: { type: string }
+        status: { type: string, enum: [LINE, RESERVE, MAINTENANCE, FAILED, IN_SERVICE, UNKNOWN] }
+        location: { type: string }
+        mileageKm: { type: integer, format: int64 }
+        tripsSinceCleaning: { type: [integer, 'null'] }
+        readinessEvidence: { type: string }
+    RecoveryTrip:
+      type: object
+      required: [id, label, pairKey, plannedTrainId, plannedTrain, effectiveTrainId, effectiveTrain, origin, destination, departureAt, arrivalAt, coverage]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        pairKey: { type: string }
+        plannedTrainId: { type: string, format: uuid }
+        plannedTrain: { type: string }
+        effectiveTrainId: { type: string, format: uuid }
+        effectiveTrain: { type: string }
+        origin: { type: string }
+        destination: { type: string }
+        departureAt: { type: string, format: date-time }
+        arrivalAt: { type: string, format: date-time }
+        coverage: { type: string, enum: [SCHEDULED, REPLACED, UNCOVERED] }
+    RecoveryFault:
+      type: object
+      required: [id, trainId, train, trip, occurredAt, description, status, affectedTripIds, candidates]
+      properties:
+        id: { type: string, format: uuid }
+        trainId: { type: string, format: uuid }
+        train: { type: string }
+        trip: { type: string }
+        occurredAt: { type: string, format: date-time }
+        expectedRepairAt: { type: [string, 'null'], format: date-time }
+        description: { type: string }
+        status: { type: string, enum: [NEEDS_REPLACEMENT, REPLACEMENT_ASSIGNED, RELEASED_TO_RESERVE] }
+        affectedTripIds: { type: array, items: { type: string, format: uuid } }
+        replacementTrain: { type: [string, 'null'] }
+        candidates: { type: array, items: { $ref: '#/components/schemas/RecoveryCandidate' } }
+        acceptedAt: { type: [string, 'null'], format: date-time }
+    RecoveryBoard:
+      type: object
+      required: [id, version, stateHash, scenarioId, sourceSnapshotId, snapshotHash, scope, provenance, windowStart, windowEnd, asOf, policy, trainCount, availableTrainCount, unavailableTrainCount, uncoveredTripCount, incompletePairCount, reserve, trains, trips, faults, messages]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer }
+        stateHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        scenarioId: { type: string, format: uuid }
+        sourceSnapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        scope: { type: string, const: OPERATIONAL_DAY_MODEL }
+        provenance: { type: string }
+        windowStart: { type: string, format: date-time }
+        windowEnd: { type: string, format: date-time }
+        asOf: { type: string, format: date-time }
+        policy:
+          type: object
+          required: [version, preparationMinutes, targetReservePerCity, cleaningEveryTrips, source]
+          properties:
+            version: { type: string }
+            preparationMinutes: { type: integer }
+            targetReservePerCity: { type: integer }
+            cleaningEveryTrips: { type: integer }
+            source: { type: string }
+        trainCount: { type: integer }
+        availableTrainCount: { type: integer, description: Instant modelled availability, not fleet readiness KPI }
+        unavailableTrainCount: { type: integer }
+        uncoveredTripCount: { type: integer }
+        incompletePairCount: { type: integer }
+        reserve:
+          type: array
+          items:
+            type: object
+            required: [location, available, target, deficit]
+            properties:
+              location: { type: string }
+              available: { type: integer }
+              target: { type: integer }
+              deficit: { type: integer }
+        trains: { type: array, items: { $ref: '#/components/schemas/RecoveryTrain' } }
+        trips: { type: array, items: { $ref: '#/components/schemas/RecoveryTrip' } }
+        faults: { type: array, items: { $ref: '#/components/schemas/RecoveryFault' } }
+        messages: { type: array, items: { type: string } }
     CaseDataset:
       type: object
       required: [source, dataset, trainCount, tripCount, planningSupported, warnings]
@@ -370,6 +578,56 @@ components:
         code: { type: string }
         severity: { type: string }
         message: { type: string }
+        objectId: { type: string, nullable: true }
+        startAt: { type: string, format: date-time, nullable: true }
+        endAt: { type: string, format: date-time, nullable: true }
+    PendingMilestone:
+      type: object
+      properties:
+        trainId: { type: string, format: uuid }
+        cycleCode: { type: string }
+        nominalKm: { type: integer, format: int64 }
+        remainingKm: { type: integer, format: int64 }
+    ValidationReport:
+      type: object
+      description: Independent D2 report bound to the saved source, canonical event fingerprint and plan version. PASS applies only to its stated scope, never to actual train release.
+      properties:
+        schemaVersion: { type: string, enum: [d2-validation-1.0] }
+        status: { type: string, enum: [NOT_PERFORMED, FAILED, PASS] }
+        scope: { type: string }
+        scenarioId: { type: string, format: uuid }
+        sourceSnapshotId: { type: string, format: uuid, nullable: true }
+        snapshotHash: { type: string }
+        resultHash: { type: string, description: SHA-256 of d2-plan-events-v1 }
+        policy: { type: string }
+        solverStatus: { type: string }
+        planVersion: { type: integer }
+        checkedAt: { type: string, format: date-time }
+        ruleVersion: { type: string, nullable: true }
+        ruleConfirmation: { type: string, nullable: true }
+        requiredServiceCount: { type: integer, nullable: true }
+        pendingMilestones: { type: array, items: { $ref: '#/components/schemas/PendingMilestone' } }
+        findings: { type: array, items: { $ref: '#/components/schemas/Validation' } }
+    ResourceLoad:
+      type: object
+      properties:
+        resourceId: { type: string }
+        busyMinutes: { type: integer, format: int64 }
+        horizonSharePercent: { type: number, description: Planned service minutes / whole horizon minutes * 100, not readiness or utilization of available shifts }
+    PlanMetrics:
+      type: object
+      description: Counts from a D2-validated plan. No actual executed trips, readiness KPI or economic benefit is inferred.
+      properties:
+        scope: { type: string }
+        scheduledTripCount: { type: integer }
+        conflictingTripCount: { type: integer }
+        requiredServiceCount: { type: integer }
+        placedServiceCount: { type: integer }
+        missingServiceCount: { type: integer }
+        trainServiceMinutes: { type: integer, format: int64 }
+        makespanMinutes: { type: integer, format: int64 }
+        peakConcurrentService: { type: integer }
+        resourceLoads: { type: array, items: { $ref: '#/components/schemas/ResourceLoad' } }
     Plan:
       type: object
       properties:
@@ -382,6 +640,11 @@ components:
         validations: { type: array, items: { $ref: '#/components/schemas/Validation' } }
         snapshotHash: { type: string }
         validationStatus: { type: string, enum: [NOT_PERFORMED, FAILED, PASS] }
+        validationReport: { $ref: '#/components/schemas/ValidationReport' }
+        metrics:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/PlanMetrics'
     PlanCalendar:
       type: object
       properties:

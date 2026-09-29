@@ -122,3 +122,20 @@ a { color: var(--accent); }
 details { margin-top: 16px; }
 summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 details table { margin-top: 8px; }
+.recovery-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin: 20px 0; }
+.recovery-summary > div, .reserve-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.recovery-summary strong { font-size: 26px; font-variant-numeric: tabular-nums; }
+.recovery-summary span, .reserve-card span { color: var(--muted); font-size: 13px; }
+.reserve-card { min-width: 210px; flex: 1; }
+.reserve-card.shortage { border-color: var(--err); background: color-mix(in srgb,var(--err) 6%,var(--surface)); }
+.reserve-card.shortage span { color: var(--err); }
+.recovery-form { display: flex; flex-direction: column; gap: 12px; margin: 12px 0; }
+.recovery-form .row label { flex: 1; }
+.recovery-form > button { align-self: flex-start; }
+.fault-card { border: 1px solid var(--line); border-radius: 8px; margin: 18px 0; padding: 16px; }
+.fault-card > h3 { margin-top: 0; color: var(--text); font-size: 15px; font-weight: 600; }
+.table-scroll { overflow-x: auto; }
+.recovery table button { white-space: nowrap; }
+.badge.FAILED { color: var(--err); background: color-mix(in srgb,var(--err) 14%,transparent); }
+.badge.RESERVE { color: var(--warn); background: color-mix(in srgb,var(--warn) 14%,transparent); }
+@media (max-width: 700px) { .recovery-summary { grid-template-columns: repeat(2,minmax(0,1fr)); } .bar { flex-wrap: wrap; } }

@@ -15,6 +15,8 @@ import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.planning.ScenarioSnapshot;
 import com.vsm.okno.store.Store;
 import com.vsm.okno.validation.IndependentIntervalAudit;
+import com.vsm.okno.validation.PlanFingerprint;
+import com.vsm.okno.validation.PlanMetrics;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.LinkedHashSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.concurrent.ExecutorService;
@@ -254,11 +257,12 @@ public class PlanningService {
         result.diagnostics().forEach(d -> validations.add(new Dto.Validation(d.code(), "CRITICAL", d.message())));
         List<Dto.Validation> intervalFindings = IndependentIntervalAudit.check(snapshot, result);
         validations.addAll(intervalFindings);
-        List<Dto.Validation> d2Findings = validator.validate(snapshot, result);
-        validations.addAll(d2Findings);
-        plan.validationStatus = validator == NOT_PERFORMED ? "NOT_PERFORMED"
-                : validations.stream().anyMatch(v -> "CRITICAL".equals(v.severity())) ? "FAILED" : "PASS";
-        plan.validations = List.copyOf(validations);
+        var report = validator.report(snapshot, result);
+        validations.addAll(report.findings());
+        plan.validations = List.copyOf(new LinkedHashSet<>(validations));
+        plan.validationReport = report.withFindings(plan.validations);
+        plan.validationStatus = plan.validationReport.status();
+        plan.metrics = PlanMetrics.calculate(snapshot, result, plan.validationReport);
         Map<UUID, MileageObligationGenerator.Obligation> obligations = projection == null ? Map.of()
                 : projection.obligations().stream().collect(Collectors.toMap(
                 MileageObligationGenerator.Obligation::blockId, Function.identity()));
@@ -293,6 +297,22 @@ public class PlanningService {
                     .filter(v -> "CRITICAL".equals(v.severity())).map(Dto.Validation::code).toList();
             if (!critical.isEmpty()) {
                 throw new NotApprovableException("plan has critical violations: " + String.join(", ", critical));
+            }
+            if (plan.validationReport == null || !"PASS".equals(plan.validationReport.status())
+                    || !plan.scenarioId.equals(plan.validationReport.scenarioId())
+                    || !plan.snapshotHash.equals(plan.validationReport.snapshotHash())
+                    || plan.version != plan.validationReport.planVersion()
+                    || !plan.solverStatus.equals(plan.validationReport.solverStatus())) {
+                throw new NotApprovableException("D2 report does not match this plan version/source/result");
+            }
+            try {
+                if (!plan.validationReport.resultHash().equals(PlanFingerprint.events(plan.scenarioId, plan.snapshotHash, plan.events))) {
+                    throw new NotApprovableException("plan events changed after D2 validation; calculate and validate again");
+                }
+            } catch (NotApprovableException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                throw new NotApprovableException("plan events cannot be matched to the D2 report");
             }
             plan.approvedBy = actor;
             plan.status = "APPROVED";
@@ -358,7 +378,7 @@ public class PlanningService {
 
     private Dto.Plan toPlanDto(Store.Plan plan) {
         return new Dto.Plan(plan.id, plan.scenarioId, plan.version, plan.status, plan.events,
-                plan.validations, plan.approvedBy, plan.snapshotHash, plan.validationStatus);
+                plan.validations, plan.approvedBy, plan.snapshotHash, plan.validationStatus, plan.validationReport, plan.metrics);
     }
 
     private static List<Dto.Train> syntheticFleet(int count) {

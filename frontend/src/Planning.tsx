@@ -116,6 +116,10 @@ export default function Planning({
             </dd>
             <dt>Работ в плане</dt>
             <dd>{p.events.length}</dd>
+            {p.validationReport?.requiredServiceCount != null && <>
+              <dt>Обязательных работ по данным D2</dt>
+              <dd>{p.validationReport.requiredServiceCount}</dd>
+            </>}
             {p.approvedBy && (
               <>
                 <dt>Согласовал</dt>
@@ -151,6 +155,11 @@ export default function Planning({
           )}
 
           <h3>Результат проверки и диагностика</h3>
+          {p.validationReport && <p className="muted">
+            Область: {p.validationReport.scope === 'E2_MODEL' ? 'модельный план E2' : p.validationReport.scope}.
+            {p.validationReport.ruleVersion && <> Версия правил: {p.validationReport.ruleVersion}.</>}
+            {' '}Проверено {fmt(p.validationReport.checkedAt)}.
+          </p>}
           {p.validations.length === 0 ? (
             <p className="muted">Критических замечаний нет. Статус D2: {p.validationStatus}.</p>
           ) : (
@@ -158,10 +167,34 @@ export default function Planning({
               {p.validations.map((v, i) => (
                 <li key={i}>
                   <span className={`badge ${v.severity}`}>{v.severity}</span> {v.code}: {v.message}
+                  {v.objectId && <span className="muted"> · объект {v.objectId}</span>}
+                  {v.startAt && v.endAt && <span className="muted"> · {fmt(v.startAt)}–{fmt(v.endAt)}</span>}
                 </li>
               ))}
             </ul>
           )}
+
+          {p.metrics && <>
+            <h3>Показатели проверенного плана</h3>
+            <p className="muted">ТО измерено в суммарных часах работ по составам. Это не коэффициент готовности парка и не фактически выполненные рейсы.</p>
+            <dl className="kv">
+              <dt>Рейсов в исходном графике</dt><dd>{p.metrics.scheduledTripCount}</dd>
+              <dt>Конфликтов работ с рейсами</dt><dd>{p.metrics.conflictingTripCount}</dd>
+              <dt>Обязательных / размещённых работ</dt><dd>{p.metrics.requiredServiceCount} / {p.metrics.placedServiceCount}</dd>
+              <dt>Отсутствующих работ</dt><dd>{p.metrics.missingServiceCount}</dd>
+              <dt>Суммарное ТО, составо-часов</dt><dd>{(p.metrics.trainServiceMinutes / 60).toFixed(1)}</dd>
+              <dt>Максимум одновременных работ</dt><dd>{p.metrics.peakConcurrentService}</dd>
+            </dl>
+            <table><thead><tr><th>Ресурс</th><th>Работы, ч</th><th>Доля горизонта, %</th></tr></thead>
+              <tbody>{p.metrics.resourceLoads.map(r => <tr key={r.resourceId}><td>{r.resourceId}</td><td>{(r.busyMinutes / 60).toFixed(1)}</td><td>{r.horizonSharePercent.toFixed(2)}</td></tr>)}</tbody>
+            </table>
+          </>}
+          {!!p.validationReport?.pendingMilestones.length && <details>
+            <summary>Следующие пробеговые рубежи за горизонтом ({p.validationReport.pendingMilestones.length})</summary>
+            <table><thead><tr><th>Состав</th><th>Цикл</th><th>Рубеж, км</th><th>Осталось от конца горизонта, км</th></tr></thead>
+              <tbody>{p.validationReport.pendingMilestones.map(m => <tr key={`${m.trainId}:${m.cycleCode}`}><td>{trainName.get(m.trainId) ?? m.trainId}</td><td>{m.cycleCode}</td><td>{m.nominalKm}</td><td>{m.remainingKm}</td></tr>)}</tbody>
+            </table>
+          </details>}
 
           <form
             className="row"
