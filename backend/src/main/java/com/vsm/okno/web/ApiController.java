@@ -40,6 +40,11 @@ public class ApiController {
         return service.changeDemoR1Arrival(id, request.arrivalMinute());
     }
 
+    @PostMapping("/demo/case-source")
+    public ResponseEntity<Dto.CaseDataset> importCaseDataset(@RequestParam String dataset) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.importCaseDataset(dataset));
+    }
+
     @GetMapping("/scenarios/{id}")
     public Dto.Scenario getScenario(@PathVariable UUID id) {
         return service.getScenario(id);

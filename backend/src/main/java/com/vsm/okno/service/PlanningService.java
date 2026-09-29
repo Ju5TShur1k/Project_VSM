@@ -2,6 +2,7 @@ package com.vsm.okno.service;
 
 import com.vsm.okno.dto.Dto;
 import com.vsm.okno.data.DemoSourceService;
+import com.vsm.okno.data.CaseDatasetService;
 import com.vsm.okno.data.SourceSnapshotE2Adapter;
 import com.vsm.okno.data.SourceSnapshotRepository;
 import com.vsm.okno.planning.CpSatPlanner;
@@ -47,6 +48,7 @@ public class PlanningService {
     private final PlanValidator validator;
     private final DemoSourceService demoSource;
     private final SourceSnapshotRepository sourceSnapshots;
+    private final CaseDatasetService caseDatasets;
 
     private final Planner cpSat = new CpSatPlanner();
     private final Map<PlannerRequest.Policy, Planner> planners = Map.of(
@@ -65,10 +67,12 @@ public class PlanningService {
 
     public PlanningService(ObjectProvider<PlanValidator> validators,
                            ObjectProvider<DemoSourceService> demoSources,
-                           ObjectProvider<SourceSnapshotRepository> sourceRepositories) {
+                           ObjectProvider<SourceSnapshotRepository> sourceRepositories,
+                           ObjectProvider<CaseDatasetService> caseSources) {
         this.validator = validators.getIfAvailable(() -> NOT_PERFORMED);
         this.demoSource = demoSources.getIfAvailable();
         this.sourceSnapshots = sourceRepositories.getIfAvailable();
+        this.caseDatasets = caseSources.getIfAvailable();
     }
 
     @PreDestroy
@@ -114,6 +118,9 @@ public class PlanningService {
             throw new InvalidRequestException("arrivalMinute", "must be between 50 and 60");
         }
         Store.Scenario scenario = require(store.scenarios, scenarioId, "scenario");
+        if (!"Демонстрационные данные".equals(scenario.provenance)) {
+            throw new InvalidRequestException("scenario", "R1 editor is only supported for the short demo");
+        }
         if (scenario.sourceSnapshotId == null) throw new InvalidRequestException("scenario", "is not a saved demo source");
         var captured = demoSource.changeR1Arrival(scenarioId, arrivalMinute);
         scenario.sourceSnapshotId = captured.snapshotId();
@@ -123,6 +130,28 @@ public class PlanningService {
     private static Dto.DemoSource demoResponse(DemoSourceService.Captured captured) {
         return new Dto.DemoSource(captured.scenarioId(), captured.snapshotId(),
                 captured.snapshotHash(), "Демонстрационные данные");
+    }
+
+    public Dto.CaseDataset importCaseDataset(String key) {
+        if (caseDatasets == null) throw new InvalidRequestException("database", "profile is required");
+        CaseDatasetService.Dataset dataset;
+        try {
+            dataset = CaseDatasetService.Dataset.valueOf(key);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new InvalidRequestException("dataset", "must be FULL43, E2_6 or BLOCKED6");
+        }
+        var loaded = caseDatasets.load(dataset);
+        var response = loaded.response();
+        Store.Scenario scenario = new Store.Scenario();
+        scenario.id = response.source().scenarioId();
+        scenario.createdAt = Instant.now();
+        scenario.provenance = response.source().provenance();
+        scenario.trains = loaded.trains();
+        scenario.sourceSnapshotId = response.source().snapshotId();
+        if (!response.planningSupported()) scenario.planningUnsupportedReason =
+                "FULL43 содержит резерв, уборку и закреплённые работы; необходим адаптер E3. Используйте E2_6 для проверки расчёта.";
+        store.scenarios.put(scenario.id, scenario);
+        return response;
     }
 
     public Dto.Scenario getScenario(UUID id) {
@@ -138,6 +167,9 @@ public class PlanningService {
     public Dto.JobStatus createJob(Dto.JobRequest req) {
         if (req.scenarioId() == null) throw new InvalidRequestException("scenarioId", "is required");
         Store.Scenario scenario = require(store.scenarios, req.scenarioId(), "scenario");
+        if (scenario.planningUnsupportedReason != null) {
+            throw new InvalidRequestException("scenario", scenario.planningUnsupportedReason);
+        }
         PlannerRequest.Policy policy = parsePolicy(req.policy());
         if (req.timeLimitSec() <= 0 || req.timeLimitSec() > MAX_TIME_LIMIT_SEC) {
             throw new InvalidRequestException("timeLimitSec", "must be between 1 and " + MAX_TIME_LIMIT_SEC);

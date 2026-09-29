@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, DemoSource, ru, Train, Unauthorized } from './api'
+import { api, CaseDataset, DemoSource, ru, Train, Unauthorized } from './api'
 import Login from './Login'
 import Planning from './Planning'
 import CalendarDemo from './calendar/CalendarDemo'
@@ -23,11 +23,22 @@ function Fleet({ username }: { username: string }) {
   const qc = useQueryClient()
   const [source, setSource] = useState<DemoSource | null>(null)
   const [arrivalMinute, setArrivalMinute] = useState(50)
+  const [dataset, setDataset] = useState<'TOY' | CaseDataset['dataset']>('E2_6')
+  const [caseData, setCaseData] = useState<CaseDataset | null>(null)
+  const [shortDemo, setShortDemo] = useState(false)
   const scenarioId = source?.scenarioId ?? null
 
   const importMutation = useMutation({
-    mutationFn: api.importDemoSource,
-    onSuccess: (data) => { setSource(data); setArrivalMinute(50) }
+    mutationFn: async () => {
+      if (dataset === 'TOY') return { source: await api.importDemoSource(), details: null }
+      const details = await api.importCaseDataset(dataset)
+      return { source: details.source, details }
+    },
+    onSuccess: ({ source: loaded, details }) => {
+      setSource(loaded); setCaseData(details); setShortDemo(details === null); setArrivalMinute(50)
+      void qc.invalidateQueries({ queryKey: ['scenario', loaded.scenarioId] })
+      void qc.invalidateQueries({ queryKey: ['trains', loaded.scenarioId] })
+    }
   })
 
   const changeTrip = useMutation({
@@ -62,12 +73,26 @@ function Fleet({ username }: { username: string }) {
       <main>
         <span className="demo-label">Демо-данные</span>
 
-        {!source && (
-          <button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
-            {importMutation.isPending ? 'Загрузка…' : 'Загрузить демо-данные'}
-          </button>
-        )}
-        {importMutation.isError && <p className="error">Ошибка: {importMutation.error.message}</p>}
+        <section className="card pad">
+          <h2>Исходные данные</h2>
+          <div className="row">
+            <label>Набор
+              <select value={dataset} onChange={(e) => setDataset(e.target.value as typeof dataset)}>
+                <option value="E2_6">6 составов · 252 рейса</option>
+                <option value="BLOCKED6">6 составов · путь недоступен после первых суток</option>
+                <option value="FULL43">43 состава · полный парк</option>
+                <option value="TOY">1 состав · изменение рейса R1</option>
+              </select>
+            </label>
+            <button onClick={() => importMutation.mutate()} disabled={importMutation.isPending}>
+              {importMutation.isPending ? 'Загрузка…' : 'Загрузить'}
+            </button>
+            {source && <span className="muted" title={source.snapshotHash}>Версия данных {source.snapshotHash.slice(0, 12)}</span>}
+          </div>
+          {caseData && <p><strong>{caseData.trainCount} составов · {caseData.tripCount} рейсов · 14 суток</strong></p>}
+          {caseData?.warnings.map((warning) => <p className="muted" key={warning}>{warning}</p>)}
+          {importMutation.isError && <p className="error">Ошибка: {importMutation.error.message}</p>}
+        </section>
         {trainsQuery.isError && <p className="error">Ошибка: {trainsQuery.error.message}</p>}
 
         {trainsQuery.data && trainsQuery.data.length > 0 && (
@@ -98,26 +123,25 @@ function Fleet({ username }: { username: string }) {
           </section>
         )}
 
-        {source && (
-          <>
-            <section className="card pad">
-              <h2>Рейс R1</h2>
-              <div className="row">
-                <label>Прибытие (МСК)
-                  <select value={arrivalMinute} onChange={(e) => setArrivalMinute(Number(e.target.value))}>
-                    {[50, 55, 60].map((minute) => <option key={minute} value={minute}>01.07.2028 {minute === 60 ? '01:00' : `00:${minute}`}</option>)}
-                  </select>
-                </label>
-                <button onClick={() => changeTrip.mutate()} disabled={changeTrip.isPending}>
-                  {changeTrip.isPending ? 'Сохраняем…' : 'Сохранить'}
-                </button>
-                <span className="muted" title={source.snapshotHash}>Версия данных {source.snapshotHash.slice(0, 12)}</span>
-              </div>
-              {changeTrip.isError && <p className="error">{changeTrip.error.message}</p>}
-            </section>
-            <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data} />
-          </>
+        {source && shortDemo && (
+          <section className="card pad">
+            <h2>Рейс R1</h2>
+            <div className="row">
+              <label>Прибытие (МСК)
+                <select value={arrivalMinute} onChange={(e) => setArrivalMinute(Number(e.target.value))}>
+                  {[50, 55, 60].map((minute) => <option key={minute} value={minute}>01.07.2028 {minute === 60 ? '01:00' : `00:${minute}`}</option>)}
+                </select>
+              </label>
+              <button onClick={() => changeTrip.mutate()} disabled={changeTrip.isPending}>
+                {changeTrip.isPending ? 'Сохраняем…' : 'Сохранить'}
+              </button>
+            </div>
+            {changeTrip.isError && <p className="error">{changeTrip.error.message}</p>}
+          </section>
         )}
+        {source && (caseData?.planningSupported !== false
+          ? <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data} />
+          : <p className="muted">Расчёт для полного парка появится после подключения резерва, уборки и закреплённых работ. Для расчёта выберите набор из 6 составов.</p>)}
       </main>
     </>
   )

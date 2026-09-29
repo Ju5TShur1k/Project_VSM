@@ -116,6 +116,27 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DemoSource' }
 
+  /demo/case-source:
+    post:
+      summary: Load additive case-derived model datasets and capture the saved source
+      description: Numeric norms come from case 06; histories, dates and trips are modelled. FULL43 cannot be planned by the E2 adapter.
+      parameters:
+        - in: query
+          name: dataset
+          required: true
+          schema: { type: string, enum: [FULL43, E2_6, BLOCKED6] }
+      responses:
+        '201':
+          description: Saved case model dataset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaseDataset' }
+        '422':
+          description: Invalid dataset or missing database profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   /scenarios/{id}:
     get:
       summary: Get scenario snapshot
@@ -291,6 +312,16 @@ components:
       required: true
       schema: { type: string, format: uuid }
   schemas:
+    CaseDataset:
+      type: object
+      required: [source, dataset, trainCount, tripCount, planningSupported, warnings]
+      properties:
+        source: { $ref: '#/components/schemas/DemoSource' }
+        dataset: { type: string, enum: [FULL43, E2_6, BLOCKED6] }
+        trainCount: { type: integer }
+        tripCount: { type: integer }
+        planningSupported: { type: boolean }
+        warnings: { type: array, items: { type: string } }
     DemoSource:
       type: object
       properties:
@@ -305,7 +336,7 @@ components:
         externalId: { type: string }
         status:
           type: string
-          enum: [AVAILABLE, IN_SERVICE, READY_IDLE, HOT_RESERVE, MAINTENANCE, CLEANING, FAULT, TRANSFER, AWAITING_RELEASE, NOT_COMMISSIONED]
+          enum: [AVAILABLE, IN_SERVICE, READY_IDLE, HOT_RESERVE, RESERVE, MAINTENANCE, CLEANING, FAULT, TRANSFER, AWAITING_RELEASE, NOT_COMMISSIONED]
         mileageKm: { type: number }
         nextObligation: { type: string }
     JobRequest:
