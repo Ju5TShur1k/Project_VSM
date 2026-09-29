@@ -7,12 +7,14 @@ import com.vsm.okno.data.SourceSnapshotRepository;
 import com.vsm.okno.planning.CpSatPlanner;
 import com.vsm.okno.planning.E3FeasibilityAudit;
 import com.vsm.okno.planning.E3TripAssignmentLedger;
+import com.vsm.okno.planning.E3MileageObligationRecalculator;
 import com.vsm.okno.planning.PlannerRequest;
 import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.planning.OperationalConstraints;
 import com.vsm.okno.planning.ScenarioSnapshot;
 import com.vsm.okno.validation.E3SourcePlanAudit;
 import com.vsm.okno.validation.E3TripAssignmentAudit;
+import com.vsm.okno.validation.E3MileageObligationAudit;
 import com.vsm.okno.validation.IndependentIntervalAudit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -189,6 +191,15 @@ class CaseFleetIntegrationTest {
         assertTrue(proposed.trains().get(train4).trips().stream()
                 .anyMatch(t -> t.tripId().equals(three.getFirst())));
         assertTrue(new E3TripAssignmentAudit().check(saved, proposed, cutoff, 55).isEmpty());
+        var recalculated = new E3MileageObligationRecalculator().recalculate(saved, proposed, cutoff, 55);
+        assertEquals(1428, recalculated.effectiveTrips().size());
+        assertTrue(recalculated.obligations().size() > 0);
+        assertTrue(recalculated.blocks().stream().allMatch(block ->
+                block.kind() == ScenarioSnapshot.ServiceBlock.Kind.MAINTENANCE
+                        && block.allowedResourceIds().size() == 5));
+        assertTrue(new E3MileageObligationAudit().check(saved, proposed, recalculated, cutoff, 55).isEmpty());
+        assertEquals(train4, recalculated.effectiveTrips().stream()
+                .filter(t -> t.id().equals(three.getFirst())).findFirst().orElseThrow().trainId());
         assertThrows(IllegalArgumentException.class,
                 () -> ledger.evaluate(saved, Map.of(three.getFirst(), depotTrain), cutoff, 55));
     }

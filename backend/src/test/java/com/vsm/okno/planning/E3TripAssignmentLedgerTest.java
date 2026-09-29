@@ -3,6 +3,7 @@ package com.vsm.okno.planning;
 import com.vsm.okno.data.SourceSnapshotRepository.SourceSnapshot;
 import com.vsm.okno.validation.PlanFingerprint;
 import com.vsm.okno.validation.E3TripAssignmentAudit;
+import com.vsm.okno.validation.E3MileageObligationAudit;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -20,6 +21,7 @@ class E3TripAssignmentLedgerTest {
     private static final UUID A = id("train-a");
     private static final UUID B = id("train-b");
     private static final UUID TRIP = id("trip");
+    private static final UUID RULE_SET = id("rule-set");
     private static final OffsetDateTime START = OffsetDateTime.parse("2031-07-01T00:00:00+03:00");
 
     @Test
@@ -48,6 +50,33 @@ class E3TripAssignmentLedgerTest {
                 moved.trips(), traces, moved.changedTripCount());
         assertTrue(new E3TripAssignmentAudit().check(source, falsified, START, 55).stream()
                 .anyMatch(f -> f.code().equals("D2_E3_MILEAGE_TRACE")));
+
+        var recalculator = new E3MileageObligationRecalculator();
+        var before = recalculator.recalculate(source, original, START, 55);
+        var after = recalculator.recalculate(source, moved, START, 55);
+        assertEquals(1, before.obligations().size());
+        assertEquals(A, before.obligations().getFirst().trainId());
+        assertEquals(1500, before.obligations().getFirst().nominalKm());
+        assertEquals(1, after.obligations().size());
+        assertEquals(B, after.obligations().getFirst().trainId());
+        assertEquals(2500, after.obligations().getFirst().nominalKm());
+        assertEquals(B, after.effectiveTrips().getFirst().trainId());
+        var milestoneAudit = new E3MileageObligationAudit();
+        assertTrue(milestoneAudit.check(source, moved, after, START, 55).isEmpty());
+        var omitted = new E3MileageObligationRecalculator.Recalculated(after.scenarioId(),
+                after.snapshotHash(), after.effectiveTrips(), after.blocks(), java.util.List.of());
+        assertTrue(milestoneAudit.check(source, moved, omitted, START, 55).stream()
+                .anyMatch(f -> f.code().equals("D2_E3_REQUIRED_WORK_MISSING")));
+        var block = after.blocks().getFirst();
+        var unauthorized = new ScenarioSnapshot.ServiceBlock(block.id(), block.trainId(),
+                block.resourceId(), block.durationMinutes(), block.earliestStartMinute(),
+                block.latestEndMinute(), block.predecessorIds(), block.kind(),
+                java.util.List.of("PATH-1", "PATH-NOT-ALLOWED"));
+        var enlargedChoice = new E3MileageObligationRecalculator.Recalculated(after.scenarioId(),
+                after.snapshotHash(), after.effectiveTrips(), java.util.List.of(unauthorized),
+                after.obligations());
+        assertTrue(milestoneAudit.check(source, moved, enlargedChoice, START, 55).stream()
+                .anyMatch(f -> f.code().equals("D2_E3_BLOCK_CHANGED")));
     }
 
     @Test
@@ -68,7 +97,8 @@ class E3TripAssignmentLedgerTest {
     private static SourceSnapshot source(String cityB, String occupancy) {
         String payload = """
                 {"schemaVersion":"d1-source-1.0","canonicalization":"pg-jsonb-text-v1",
-                "scenarioId":"%s","scenario":{"id":"%s","horizon_start":"2031-07-01T00:00:00+03:00",
+                "scenarioId":"%s","scenario":{"id":"%s","rule_set_id":"%s",
+                "provenance":"synthetic reassignment test","horizon_start":"2031-07-01T00:00:00+03:00",
                 "horizon_end":"2031-07-02T00:00:00+03:00"},"trains":[
                 {"id":"%s","external_id":"A","location":"SPB_DEPOT","status":"AVAILABLE"},
                 {"id":"%s","external_id":"B","location":"%s","status":"AVAILABLE"}],
@@ -78,8 +108,21 @@ class E3TripAssignmentLedgerTest {
                 "fixedTrips":[{"id":"%s","train_id":"%s","label":"R1","origin":"SPB_DEPOT",
                 "destination":"MOSCOW","departure_at":"2031-07-01T06:00:00+03:00",
                 "arrival_at":"2031-07-01T08:00:00+03:00","distance_km":670}],
-                "trainOccupancy":%s,"frozenWork":[]}
-                """.formatted(SCENARIO, SCENARIO, A, B, cityB, A, B, TRIP, A, occupancy);
+                "trainOccupancy":%s,"frozenWork":[],
+                "ruleSets":[{"id":"%s","confirmation_status":"SYNTHETIC",
+                "mileage_policy":"ABSOLUTE_GRID","tolerance_basis":"NOMINAL_MILESTONE"}],
+                "resources":[{"id":"PATH-1"}],
+                "cycleResources":[{"rule_set_id":"%s","cycle_code":"IS100","resource_id":"PATH-1"}],
+                "cycleRules":[{"rule_set_id":"%s","code":"IS100","interval_km":500,
+                "tolerance_basis_points":2000,"duration_minutes":120,"rank":1,"source":"synthetic rule"}],
+                "cycleBaselines":[
+                {"rule_set_id":"%s","train_id":"%s","cycle_code":"IS100",
+                "credited_nominal_km":1000,"recorded_at":"2031-06-30T00:00:00+03:00"},
+                {"rule_set_id":"%s","train_id":"%s","cycle_code":"IS100",
+                "credited_nominal_km":2000,"recorded_at":"2031-06-30T00:00:00+03:00"}],
+                "serviceEvents":[],"serviceCredits":[]}
+                """.formatted(SCENARIO, SCENARIO, RULE_SET, A, B, cityB, A, B, TRIP, A,
+                occupancy, RULE_SET, RULE_SET, RULE_SET, RULE_SET, A, RULE_SET, B);
         return new SourceSnapshot(id("snapshot"), SCENARIO, "d1-source-1.0", "pg-jsonb-text-v1",
                 PlanFingerprint.sha256(payload), payload, Instant.parse("2031-06-30T21:00:00Z"));
     }
