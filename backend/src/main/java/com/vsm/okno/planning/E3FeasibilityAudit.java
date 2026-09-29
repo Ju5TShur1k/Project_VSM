@@ -25,11 +25,7 @@ public final class E3FeasibilityAudit {
                 .collect(Collectors.toMap(ScenarioSnapshot.Train::id, ScenarioSnapshot.Train::externalId));
         List<PlannerResult.Diagnostic> blockers = new ArrayList<>();
         for (var block : snapshot.blocks()) {
-            boolean windowExists = snapshot.operations().serviceWindows().stream()
-                    .filter(window -> window.trainId().equals(block.trainId())
-                            && block.allowedResourceIds().contains(window.resourceId()))
-                    .anyMatch(window -> hasFreeSegment(snapshot, block, window));
-            if (windowExists) continue;
+            if (!missingWindow(snapshot, block)) continue;
             var obligation = byBlock.get(block.id());
             String cycle = obligation == null ? block.kind().name() : obligation.cycleCode();
             blockers.add(new PlannerResult.Diagnostic("E3_NO_CONTIGUOUS_SERVICE_WINDOW",
@@ -39,6 +35,19 @@ public final class E3FeasibilityAudit {
                             + " такого интервала не оставляют. Работа " + block.id()));
         }
         return List.copyOf(blockers);
+    }
+
+    /** Block identities for candidate search; this is only a necessary-condition diagnostic. */
+    public static List<UUID> blockedBlockIds(ScenarioSnapshot snapshot) {
+        return snapshot.blocks().stream().filter(block -> missingWindow(snapshot, block))
+                .map(ScenarioSnapshot.ServiceBlock::id).toList();
+    }
+
+    private static boolean missingWindow(ScenarioSnapshot snapshot, ScenarioSnapshot.ServiceBlock block) {
+        return snapshot.operations().serviceWindows().stream()
+                .filter(window -> window.trainId().equals(block.trainId())
+                        && block.allowedResourceIds().contains(window.resourceId()))
+                .noneMatch(window -> hasFreeSegment(snapshot, block, window));
     }
 
     private static boolean hasFreeSegment(ScenarioSnapshot source, ScenarioSnapshot.ServiceBlock block,

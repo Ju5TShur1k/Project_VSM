@@ -27,4 +27,17 @@ public final class E3AssessmentController {
             @RequestBody E3AssessmentService.CandidateInput candidate) {
         return service.assessCandidate(id, candidate);
     }
+
+    @PostMapping("/{id}/e3-rotation-search")
+    public com.vsm.okno.planning.E3RotationCandidateSearch.Candidate searchRotation(@PathVariable UUID id,
+            @RequestBody E3AssessmentService.RotationSearchInput input) {
+        return service.searchRotation(id, input);
+    }
+
+    @PostMapping("/{id}/e3-maintenance-candidate-solve")
+    public com.vsm.okno.planning.E3MaintenanceCandidateSolver.Result solveMaintenanceCandidate(
+            @PathVariable UUID id,
+            @RequestBody com.vsm.okno.planning.E3MaintenanceCandidateSolver.Input input) {
+        return service.solveMaintenanceCandidate(id, input);
+    }
 }

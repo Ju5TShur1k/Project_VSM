@@ -187,6 +187,60 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  /source-snapshots/{id}/e3-rotation-search:
+    post:
+      summary: Search a bounded, source-backed return rotation that frees a maintenance window
+      description: Read-only necessary-condition search. A proposed rotation has independently checked trip and mileage facts, but no CP-SAT plan, cleaning placement or full D2 approval.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/E3RotationSearchInput' }
+      responses:
+        '200':
+          description: One improving rotation or an explicit reason that the bounded search found none
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/E3RotationCandidate' }
+        '404':
+          description: Snapshot not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: Invalid search parameters or unsupported source facts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /source-snapshots/{id}/e3-maintenance-candidate-solve:
+    post:
+      summary: Run maintenance CP-SAT for a verified full-fleet trip candidate
+      description: Returns maintenance placement only. Missing cleaning, release rules and independent full D2 keep fullSolverStatus=NOT_RUN and d2Status=NOT_PERFORMED. No plan is saved or approvable.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/E3MaintenanceCandidateInput' }
+      responses:
+        '200':
+          description: Maintenance-only solve and remaining operational obligations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/E3MaintenanceCandidateResult' }
+        '404':
+          description: Snapshot not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: Invalid candidate or unsupported source facts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   /scenarios/{id}:
     get:
       summary: Get scenario snapshot
@@ -932,6 +986,76 @@ components:
           type: object
           description: Map of fixed trip UUID to proposed effective train UUID; omitted trips keep their source assignment.
           additionalProperties: { type: string, format: uuid }
+    E3RotationSearchInput:
+      type: object
+      required: [frozenUntil, preparationMinutes, maxEvaluations]
+      properties:
+        frozenUntil: { type: string, format: date-time }
+        preparationMinutes: { type: integer, minimum: 0, maximum: 1440 }
+        maxEvaluations: { type: integer, minimum: 1, maximum: 32 }
+        effectiveTrainByTrip:
+          type: object
+          description: Optional current candidate; the returned map includes previous and newly proposed assignments.
+          additionalProperties: { type: string, format: uuid }
+    E3RotationCandidate:
+      type: object
+      required: [scenarioId, sourceSnapshotId, snapshotHash, searchStatus, solverStatus, d2Status, evaluatedAssignments, initialBlockedWorks, remainingBlockedWorks, effectiveTrainByTrip, reserve, cleaning]
+      properties:
+        scenarioId: { type: string, format: uuid }
+        sourceSnapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        searchStatus: { type: string, enum: [NO_FIXED_WINDOW_BLOCKER, NO_IMPROVING_ROTATION, IMPROVING_ROTATION_FOUND] }
+        solverStatus: { type: string, const: NOT_RUN }
+        d2Status: { type: string, const: NOT_PERFORMED }
+        evaluatedAssignments: { type: integer }
+        initialBlockedWorks: { type: integer }
+        remainingBlockedWorks: { type: integer }
+        effectiveTrainByTrip:
+          type: object
+          description: Cumulative trip UUID to effective train UUID map for the candidate.
+          additionalProperties: { type: string, format: uuid }
+        reserve: { $ref: '#/components/schemas/E3CandidateAssessment/properties/reserve' }
+        cleaning: { $ref: '#/components/schemas/E3CandidateAssessment/properties/cleaning' }
+    E3MaintenanceCandidateInput:
+      type: object
+      required: [frozenUntil, preparationMinutes, effectiveTrainByTrip, seed, timeLimitSec]
+      properties:
+        frozenUntil: { type: string, format: date-time }
+        preparationMinutes: { type: integer, minimum: 0, maximum: 1440 }
+        effectiveTrainByTrip:
+          type: object
+          additionalProperties: { type: string, format: uuid }
+        seed: { type: integer }
+        timeLimitSec: { type: integer, minimum: 1, maximum: 60 }
+    E3MaintenanceCandidateResult:
+      type: object
+      required: [scenarioId, sourceSnapshotId, snapshotHash, tripCount, changedTripCount, maintenanceSolverStatus, fullSolverStatus, d2Status, maintenanceBlocks, diagnostics, reserve, cleaning]
+      properties:
+        scenarioId: { type: string, format: uuid }
+        sourceSnapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        tripCount: { type: integer }
+        changedTripCount: { type: integer }
+        maintenanceSolverStatus: { type: string, enum: [NOT_RUN, OPTIMAL, FEASIBLE, INFEASIBLE, UNKNOWN, MODEL_INVALID] }
+        fullSolverStatus: { type: string, const: NOT_RUN }
+        d2Status: { type: string, const: NOT_PERFORMED }
+        maintenanceBlocks:
+          type: array
+          items: { $ref: '#/components/schemas/E3MaintenanceBlock' }
+        diagnostics:
+          type: array
+          items: { $ref: '#/components/schemas/E3Assessment/properties/blockers/items' }
+        reserve: { $ref: '#/components/schemas/E3CandidateAssessment/properties/reserve' }
+        cleaning: { $ref: '#/components/schemas/E3CandidateAssessment/properties/cleaning' }
+    E3MaintenanceBlock:
+      type: object
+      required: [blockId, trainId, resourceId, startAt, endAt]
+      properties:
+        blockId: { type: string, format: uuid }
+        trainId: { type: string, format: uuid }
+        resourceId: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
     E3CandidateAssessment:
       type: object
       required: [scenarioId, sourceSnapshotId, snapshotHash, tripCount, changedTripCount, mileageObligationCount, mileageStatus, solverStatus, d2Status, reserve, cleaning, blockers]

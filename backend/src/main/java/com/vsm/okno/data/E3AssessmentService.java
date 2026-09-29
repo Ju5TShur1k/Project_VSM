@@ -3,6 +3,9 @@ package com.vsm.okno.data;
 import com.vsm.okno.planning.E3FeasibilityAudit;
 import com.vsm.okno.planning.E3TripAssignmentLedger;
 import com.vsm.okno.planning.E3MileageObligationRecalculator;
+import com.vsm.okno.planning.E3RotationCandidateSearch;
+import com.vsm.okno.planning.E3MaintenanceCandidateSolver;
+import com.vsm.okno.planning.CpSatPlanner;
 import com.vsm.okno.planning.MileageObligationGenerator;
 import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.service.PlanningService;
@@ -35,6 +38,8 @@ public final class E3AssessmentService {
                              List<PlannerResult.Diagnostic> blockers) {}
     public record CandidateInput(OffsetDateTime frozenUntil, int preparationMinutes,
                                  Map<UUID, UUID> effectiveTrainByTrip) {}
+    public record RotationSearchInput(OffsetDateTime frozenUntil, int preparationMinutes,
+                                      int maxEvaluations, Map<UUID, UUID> effectiveTrainByTrip) {}
     public record CandidateAssessment(UUID scenarioId, UUID sourceSnapshotId, String snapshotHash,
                                       int tripCount, int changedTripCount, int mileageObligationCount,
                                       String mileageStatus, String solverStatus, String d2Status,
@@ -120,6 +125,35 @@ public final class E3AssessmentService {
                     "NOT_RUN", "NOT_PERFORMED", reserve, cleaning, List.copyOf(blockers));
         } catch (IllegalArgumentException error) {
             throw new PlanningService.InvalidRequestException("candidate", error.getMessage());
+        }
+    }
+
+    /** Finds one source-backed rotation candidate; it does not create a plan. */
+    public E3RotationCandidateSearch.Candidate searchRotation(UUID snapshotId,
+                                                               RotationSearchInput input) {
+        if (input == null || input.frozenUntil() == null)
+            throw new PlanningService.InvalidRequestException("rotationSearch", "frozenUntil is required");
+        var saved = snapshots.findById(snapshotId)
+                .orElseThrow(() -> new PlanningService.NotFoundException("snapshot not found: " + snapshotId));
+        try {
+            return new E3RotationCandidateSearch().search(saved,
+                    input.effectiveTrainByTrip() == null ? Map.of() : input.effectiveTrainByTrip(),
+                    input.frozenUntil(),
+                    input.preparationMinutes(), input.maxEvaluations());
+        } catch (IllegalArgumentException error) {
+            throw new PlanningService.InvalidRequestException("rotationSearch", error.getMessage());
+        }
+    }
+
+    /** A maintenance-only CP-SAT solve. Cleaning and full D2 are still pending. */
+    public E3MaintenanceCandidateSolver.Result solveMaintenanceCandidate(UUID snapshotId,
+            E3MaintenanceCandidateSolver.Input input) {
+        var saved = snapshots.findById(snapshotId)
+                .orElseThrow(() -> new PlanningService.NotFoundException("snapshot not found: " + snapshotId));
+        try {
+            return new E3MaintenanceCandidateSolver(new CpSatPlanner()).solve(saved, input);
+        } catch (IllegalArgumentException error) {
+            throw new PlanningService.InvalidRequestException("maintenanceCandidate", error.getMessage());
         }
     }
 }
