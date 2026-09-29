@@ -5,6 +5,7 @@ import { api, CaseDataset, DemoSource, RecoveryBoard, Role, ru, Train, Unauthori
 import type { CalendarData } from './calendar/PlanningCalendar'
 import Dispatcher, { IncidentLog } from './Dispatcher'
 import RecoveryConsole from './RecoveryConsole'
+import { Icon, Logo } from './Icons'
 import Login from './Login'
 import Planning from './Planning'
 import CalendarDemo from './calendar/CalendarDemo'
@@ -39,6 +40,7 @@ function Shell({ username, role, children }: { username: string; role: Role; chi
     <>
       <header className="top">
         <div>
+          <Logo />
           <strong>ОКНО ВСМ</strong>
           <span>Планирование ТО парка ЭВС360</span>
         </div>
@@ -76,7 +78,7 @@ function TrainCard({ train, calendar, onClose }: { train: Train; calendar: Calen
   return (
     <section className="card pad">
       <div className="bar">
-        <h2>Состав {train.externalId}</h2>
+        <h2><Icon name="train" />Состав {train.externalId}</h2>
         <button className="btn-outline" onClick={onClose}>Закрыть</button>
       </div>
       <dl className="kv">
@@ -163,7 +165,7 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
   return (
     <>
         <section className="card pad">
-          <h2>Исходные данные</h2>
+          <h2><Icon name="database" />Исходные данные</h2>
           <div className="row">
             <label>Набор
               <select value={dataset} onChange={(e) => setDataset(e.target.value as typeof dataset)}>
@@ -179,7 +181,6 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
             {source && <span className="muted" title={source.snapshotHash}>Версия данных {source.snapshotHash.slice(0, 12)}</span>}
           </div>
           {caseData && <p><strong>{caseData.trainCount} составов · {caseData.tripCount} рейсов · 14 суток</strong></p>}
-          {caseData?.warnings.map((warning) => <p className="muted" key={warning}>{warning}</p>)}
           {importMutation.isError && <p className="error">Ошибка: {importMutation.error.message}</p>}
         </section>
         {trainsQuery.isError && <p className="error">Ошибка: {trainsQuery.error.message}</p>}
@@ -189,7 +190,7 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
 
         {fleetTrains && fleetTrains.length > 0 && (
           <section className="card">
-            <h2 className="pad-h">Парк</h2>
+            <h2 className="pad-h"><Icon name="train" />Парк</h2>
             <table>
               <thead>
                 <tr>
@@ -223,7 +224,7 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
 
         {source && shortDemo && (
           <section className="card pad">
-            <h2>Рейс R1</h2>
+            <h2><Icon name="route" />Рейс R1</h2>
             <div className="row">
               <label>Прибытие (МСК)
                 <select value={arrivalMinute} onChange={(e) => setArrivalMinute(Number(e.target.value))}>
@@ -242,7 +243,7 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
               canApprove={canApprove} onPlan={setPlanId} />
           : <p className="muted">Расчёт для полного парка появится после подключения резерва, уборки и закреплённых работ. Для расчёта выберите набор из 6 составов.</p>)}
         <section className="card">
-          <h2 className="pad-h">Сообщения диспетчера</h2>
+          <h2 className="pad-h"><Icon name="bell" />Сообщения диспетчера</h2>
           <IncidentLog />
         </section>
     </>

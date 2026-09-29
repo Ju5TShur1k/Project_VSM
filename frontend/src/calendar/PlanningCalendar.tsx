@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import './planning-calendar.css'
+import { Icon } from '../Icons'
 
 export type CalendarEvent = {
   id: string
@@ -65,7 +66,7 @@ export default function PlanningCalendar({ data, details = true }: { data: Calen
 
   return (
     <section className="card pad planning-calendar" aria-label="Календарь по поездам и ресурсам">
-      <h2>Календарь</h2>
+      <h2><Icon name="calendar" />Календарь</h2>
       <div className="calendar-scroll">
         <div className="calendar-grid" style={{ width: Math.max(900, Math.min(8000, hourCount * 40)) }}>
           <div className="calendar-axis">

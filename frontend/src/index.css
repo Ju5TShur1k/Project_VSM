@@ -33,10 +33,13 @@ body {
   gap: 16px;
   padding: 18px max(20px, calc((100% - 960px) / 2 + 20px));
   background: var(--surface);
-  border-bottom: 4px solid var(--accent);
+  border-bottom: 3px solid var(--accent);
+  box-shadow: 0 3px 0 var(--brand); /* двойная полоса, как в цветах ВСМ */
   color: var(--muted);
   font-size: 14px;
 }
+.top > div { display: flex; align-items: center; }
+.logo { width: 36px; height: 36px; margin-right: 12px; flex: none; }
 .top strong { color: var(--brand); font-size: 24px; font-weight: 800; letter-spacing: 0.02em; margin-right: 16px; }
 
 main { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px; }
@@ -91,6 +94,7 @@ button.link, button.link:hover:not(:disabled) {
 }
 .pad { padding: 32px; }
 .pad-h { margin: 0; padding: 28px 32px 8px; }
+.card > .empty { margin: 8px 32px 28px; }
 
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 14px 32px; text-align: left; border-bottom: 1px solid var(--line); }
@@ -164,3 +168,6 @@ details th, details td { padding: 10px 16px; }
 .badge.FAILED { color: var(--err); background: color-mix(in srgb,var(--err) 14%,transparent); }
 .badge.RESERVE { color: var(--warn); background: color-mix(in srgb,var(--warn) 14%,transparent); }
 @media (max-width: 700px) { .recovery-summary { grid-template-columns: repeat(2,minmax(0,1fr)); } .bar { flex-wrap: wrap; } }
+
+/* иконки разделов: красный контур рядом с синим заголовком */
+.ico { width: 20px; height: 20px; margin-right: 10px; vertical-align: -3px; color: var(--accent); flex: none; }
