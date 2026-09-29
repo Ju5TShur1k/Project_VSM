@@ -39,16 +39,26 @@ const moscow = (iso: string) => new Date(iso).toLocaleString('ru-RU', {
 })
 
 // details=false: the dispatcher sees when trains are busy, not mileage bounds and rule sources.
-export default function PlanningCalendar({ data, details = true }: { data: CalendarData; details?: boolean }) {
+// range: visible window (ms) inside the horizon; trainIds: only these train lanes (resources hidden);
+// highlight: ids of changed events, everything else is dimmed.
+export default function PlanningCalendar({ data, details = true, range, trainIds, highlight, title = 'Календарь' }: {
+  data: CalendarData
+  details?: boolean
+  range?: { start: number; end: number }
+  trainIds?: Set<string> | null
+  highlight?: Set<string> | null
+  title?: string
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const start = Date.parse(data.horizonStart)
-  const end = Date.parse(data.horizonEnd)
+  const start = range?.start ?? Date.parse(data.horizonStart)
+  const end = range?.end ?? Date.parse(data.horizonEnd)
   const duration = end - start
   const validHorizon = Number.isFinite(duration) && duration > 0
+  // Overlap, not containment: a block crossing the window edge is drawn clipped.
   const events = data.events.filter((event) => {
     const s = Date.parse(event.startAt)
     const e = Date.parse(event.endAt)
-    return Number.isFinite(s) && Number.isFinite(e) && s >= start && e <= end && e > s
+    return Number.isFinite(s) && Number.isFinite(e) && e > s && s < end && e > start
   })
   const selected = events.find((event) => event.id === selectedId)
   const hourCount = duration / 3_600_000
@@ -58,15 +68,15 @@ export default function PlanningCalendar({ data, details = true }: { data: Calen
   if (!validHorizon) return <p className="error">Некорректный горизонт календаря.</p>
 
   const rows = [
-    ...data.trains.map((train) => ({ key: `train:${train.id}`, label: train.label,
+    ...data.trains.filter((train) => !trainIds || trainIds.has(train.id)).map((train) => ({ key: `train:${train.id}`, label: train.label,
       events: events.filter((event) => event.trainId === train.id) })),
-    ...data.resources.map((resource) => ({ key: `resource:${resource.id}`, label: resource.label,
+    ...(trainIds ? [] : data.resources).map((resource) => ({ key: `resource:${resource.id}`, label: resource.label,
       events: events.filter((event) => event.resourceId === resource.id) }))
   ]
 
   return (
     <section className="card pad planning-calendar" aria-label="Календарь по поездам и ресурсам">
-      <h2><Icon name="calendar" />Календарь</h2>
+      <h2><Icon name="calendar" />{title}</h2>
       <div className="calendar-scroll">
         <div className="calendar-grid" style={{ width: Math.max(900, Math.min(8000, hourCount * 40)) }}>
           <div className="calendar-axis">
@@ -81,9 +91,10 @@ export default function PlanningCalendar({ data, details = true }: { data: Calen
               {row.events.map((event) => <button
                 key={`${row.key}:${event.id}`}
                 type="button"
-                className={`calendar-block ${event.kind.toLowerCase()} ${selectedId === event.id ? 'selected' : ''}`}
-                style={{ left: `${((Date.parse(event.startAt) - start) / duration) * 100}%`,
-                  width: `${((Date.parse(event.endAt) - Date.parse(event.startAt)) / duration) * 100}%` }}
+                className={`calendar-block ${event.kind.toLowerCase()} ${selectedId === event.id ? 'selected' : ''} ${
+                  highlight ? (highlight.has(event.id) ? 'changed' : 'dim') : ''}`}
+                style={{ left: `${((Math.max(start, Date.parse(event.startAt)) - start) / duration) * 100}%`,
+                  width: `${((Math.min(end, Date.parse(event.endAt)) - Math.max(start, Date.parse(event.startAt))) / duration) * 100}%` }}
                 aria-label={`${event.label}, ${moscow(event.startAt)}–${moscow(event.endAt)}`}
                 aria-pressed={selectedId === event.id}
                 onClick={() => setSelectedId(event.id)}

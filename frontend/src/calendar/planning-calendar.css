@@ -17,3 +17,5 @@
 .card .planning-calendar { border: 0; padding: 0; margin-top: 40px; }
 .calendar-block { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .calendar-block.trip:hover:not(:disabled) { background: var(--text); border-color: transparent; }
+.calendar-block.dim { opacity: 0.25; }
+.calendar-block.changed { outline: 2px solid var(--warn); outline-offset: 1px; }

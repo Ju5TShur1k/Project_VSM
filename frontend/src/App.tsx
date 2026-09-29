@@ -1,14 +1,34 @@
 import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { Dispatch, ReactNode, SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, CaseDataset, DemoSource, RecoveryBoard, Role, ru, Train, Unauthorized } from './api'
-import type { CalendarData } from './calendar/PlanningCalendar'
-import Dispatcher, { IncidentLog } from './Dispatcher'
+import { api, CaseDataset, DemoSource, RecoveryBoard, Role, Train, Unauthorized } from './api'
 import RecoveryConsole from './RecoveryConsole'
 import { Icon, Logo } from './Icons'
 import Login from './Login'
 import Planning from './Planning'
 import CalendarDemo from './calendar/CalendarDemo'
+import Events from './Events'
+import Fleet from './Fleet'
+import { InboxSection, PlanCompare, usePlanView } from './Requests'
+
+type Tab = 'planning' | 'fleet' | 'events'
+const TABS: Record<Role, Tab[]> = { PLANNER: ['planning', 'fleet', 'events'], TECHNOLOGIST: ['planning', 'fleet'], DISPATCHER: ['events', 'fleet'] }
+const TAB_NAME: Record<Tab, string> = { planning: 'Планирование', fleet: 'Парк', events: 'События' }
+
+// The open tab lives in the URL hash, so a reload or a shared link lands on it.
+function useTab(role: Role): [Tab, (t: Tab) => void] {
+  const pick = () => { const h = window.location.hash.slice(1) as Tab; return TABS[role].includes(h) ? h : TABS[role][0] }
+  const [tab, setTab] = useState(pick)
+  useEffect(() => { const on = () => setTab(pick()); window.addEventListener('hashchange', on); return () => window.removeEventListener('hashchange', on) })
+  return [tab, (t) => { window.location.hash = t }]
+}
+
+// ponytail: the planner's working set (loaded dataset, last plan) is kept in this browser
+// so a reload doesn't lose it; task 1 will make scenario/plan state server-side.
+type Saved = { source: DemoSource | null; caseData: CaseDataset | null; planId?: string; approvedPlanId?: string }
+const WS_KEY = 'okno.workspace'
+const loadWs = (): Saved => { try { return JSON.parse(localStorage.getItem(WS_KEY) ?? '') } catch { return { source: null, caseData: null } } }
+const saveWs = (v: Saved) => { try { localStorage.setItem(WS_KEY, JSON.stringify(v)) } catch { /* storage blocked */ } }
 
 export default function App() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, retry: false })
@@ -21,17 +41,12 @@ export default function App() {
     <p className="muted"><a href="/">← Вернуться к парку</a></p>
     <CalendarDemo />
   </main>
-  const { username, role } = me.data
-  return (
-    <Shell username={username} role={role}>
-      {role === 'DISPATCHER' ? <Dispatcher /> : <Fleet canApprove={role === 'PLANNER'} />}
-    </Shell>
-  )
+  return <Workspace username={me.data.username} role={me.data.role} />
 }
 
 const ROLE_NAME: Record<Role, string> = { PLANNER: 'планировщик', TECHNOLOGIST: 'технолог', DISPATCHER: 'диспетчер' }
 
-function Shell({ username, role, children }: { username: string; role: Role; children: ReactNode }) {
+function Shell({ username, role, tab, onTab, children }: { username: string; role: Role; tab: Tab; onTab: (t: Tab) => void; children: ReactNode }) {
   const qc = useQueryClient()
   // resetQueries drops cached data (trains of the previous user) and re-runs
   // /auth/me, which now 401s and sends us back to the login screen.
@@ -51,6 +66,11 @@ function Shell({ username, role, children }: { username: string; role: Role; chi
           </button>
         </span>
       </header>
+      <nav className="tabs" aria-label="Рабочие области">
+        {TABS[role].map((t) => (
+          <button key={t} className={t === tab ? 'on' : ''} aria-current={t === tab ? 'page' : undefined} onClick={() => onTab(t)}>{TAB_NAME[t]}</button>
+        ))}
+      </nav>
       <main>
         <span className="demo-label">Демо-данные</span>
         {children}
@@ -59,64 +79,31 @@ function Shell({ username, role, children }: { username: string; role: Role; chi
   )
 }
 
-const time = (iso: string) =>
-  new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-
-// ponytail: distance parsed from the trip label ("Рейс R1 · 670 км"); add distanceKm
-// to CalendarEvent if labels ever change.
-const km = (label: string) => Number(label.match(/(\d+)\s*км/)?.[1] ?? 0)
-
-// Everything here comes from the plan's calendar, i.e. the same snapshot the solver used.
-function TrainCard({ train, calendar, onClose }: { train: Train; calendar: CalendarData | undefined; onClose: () => void }) {
-  const events = calendar?.events.filter((e) => e.trainId === train.id) ?? []
-  const trips = events.filter((e) => e.kind === 'TRIP')
-  const services = events.filter((e) => e.kind === 'SERVICE').sort((a, b) => a.startAt.localeCompare(b.startAt))
-  const next = services[0]
-  const tripsBefore = next ? trips.filter((t) => Date.parse(t.endAt) <= Date.parse(next.startAt)) : trips
-  const arriveKm = train.mileageKm + tripsBefore.reduce((sum, t) => sum + km(t.label), 0)
-  const n = (v: number) => v.toLocaleString('ru-RU')
+function Workspace({ username, role }: { username: string; role: Role }) {
+  const [tab, setTab] = useTab(role)
+  const [ws, setWs] = useState<Saved>(loadWs)
+  useEffect(() => saveWs(ws), [ws])
+  const trains = useQuery<Train[]>({ queryKey: ['trains', ws.source?.scenarioId], queryFn: () => api.getTrains(ws.source!.scenarioId),
+    enabled: !!ws.source && role !== 'DISPATCHER', retry: false })
   return (
-    <section className="card pad">
-      <div className="bar">
-        <h2><Icon name="train" />Состав {train.externalId}</h2>
-        <button className="btn-outline" onClick={onClose}>Закрыть</button>
-      </div>
-      <dl className="kv">
-        <dt>Статус</dt><dd><span className={`badge ${train.status}`}>{train.status === 'FAILED' ? 'Неисправен' : ru(train.status)}</span></dd>
-        <dt>Пробег сейчас</dt><dd>{n(train.mileageKm)} км</dd>
-        <dt>Рейсов в горизонте</dt>
-        <dd>{calendar ? `${trips.length} · ${n(trips.reduce((s, t) => s + km(t.label), 0))} км` : 'появится после расчёта'}</dd>
-        {next && <>
-          <dt>Ближайшее ТО</dt><dd>{next.cycleCode ?? next.label} · {time(next.startAt)} – {time(next.endAt)}</dd>
-          {next.releaseOdometerKm != null && next.dueOdometerKm != null &&
-            <><dt>Окно по пробегу</dt><dd>{n(next.releaseOdometerKm)} – {n(next.dueOdometerKm)} км</dd></>}
-          <dt>Рейсов до ТО</dt><dd>{tripsBefore.length}</dd>
-          <dt>Пробег к началу ТО</dt><dd>≈ {n(arriveKm)} км</dd>
-        </>}
-        {calendar && !next && <><dt>ТО в горизонте</dt><dd>не требуется</dd></>}
-      </dl>
-      {services.length > 1 && (
-        <details>
-          <summary>Все ТО в плане ({services.length})</summary>
-          <ul className="viol">
-            {services.map((s) => <li key={s.id}>{s.cycleCode ?? s.label}: {time(s.startAt)} – {time(s.endAt)}</li>)}
-          </ul>
-        </details>
-      )}
-    </section>
+    <Shell username={username} role={role} tab={tab} onTab={setTab}>
+      {tab === 'planning' && <PlanningTab ws={ws} setWs={setWs} canApprove={role === 'PLANNER'} trains={trains.data} />}
+      {tab === 'fleet' && <Fleet ownPlanId={ws.planId} approvedHere={ws.approvedPlanId} trains={trains.data} detailed={role !== 'DISPATCHER'} />}
+      {tab === 'events' && <Events username={username} ownPlanId={ws.planId} approvedHere={ws.approvedPlanId} />}
+    </Shell>
   )
 }
 
-
-function Fleet({ canApprove }: { canApprove: boolean }) {
+function PlanningTab({ ws, setWs, canApprove, trains }: { ws: Saved; setWs: Dispatch<SetStateAction<Saved>>; canApprove: boolean; trains?: Train[] }) {
   const qc = useQueryClient()
-  const [source, setSource] = useState<DemoSource | null>(null)
+  const source = ws.source
+  const caseData = ws.caseData
+  const setSource = (s: DemoSource) => setWs((w) => ({ ...w, source: s, planId: undefined }))
   const [arrivalMinute, setArrivalMinute] = useState(50)
   const [dataset, setDataset] = useState<'TOY' | CaseDataset['dataset']>('FULL43')
-  const [caseData, setCaseData] = useState<CaseDataset | null>(null)
-  const [shortDemo, setShortDemo] = useState(false)
-  const [planId, setPlanId] = useState<string | undefined>()
-  const [cardId, setCardId] = useState<string | null>(null)
+  const shortDemo = !!source && !caseData
+  const planId = ws.planId
+  const setPlanId = (id: string | undefined) => { if (id) setWs((w) => (id === w.planId ? w : { ...w, planId: id })) }
   const [recovery, setRecovery] = useState<RecoveryBoard | null>(null)
   const [resumeId] = useState(() => new URLSearchParams(window.location.search).get('operations'))
   const scenarioId = source?.scenarioId ?? null
@@ -125,7 +112,7 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
     if(resumed.data && !source) {
       const board=resumed.data
       setRecovery(board)
-      setSource({scenarioId:board.scenarioId,snapshotId:board.sourceSnapshotId,snapshotHash:board.snapshotHash,provenance:board.provenance})
+      setWs((w) => ({ ...w, source: {scenarioId:board.scenarioId,snapshotId:board.sourceSnapshotId,snapshotHash:board.snapshotHash,provenance:board.provenance} }))
     }
   },[resumed.data,source])
 
@@ -136,9 +123,9 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
       return { source: details.source, details, recovery: dataset === 'FULL43' ? await api.createRecovery(details.source.scenarioId) : null }
     },
     onSuccess: ({ source: loaded, details, recovery: board }) => {
-      setSource(loaded); setCaseData(details); setShortDemo(details === null); setArrivalMinute(50)
-      setRecovery(board); setPlanId(undefined); setCardId(null)
-      window.history.replaceState(null,'',board ? `/?operations=${board.id}` : '/')
+      setWs({ source: loaded, caseData: details, planId: undefined }); setArrivalMinute(50)
+      setRecovery(board)
+      window.history.replaceState(null,'',(board ? `/?operations=${board.id}` : '/') + window.location.hash)
       void qc.invalidateQueries({ queryKey: ['scenario', loaded.scenarioId] })
       void qc.invalidateQueries({ queryKey: ['trains', loaded.scenarioId] })
     }
@@ -149,18 +136,8 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
     onSuccess: setSource
   })
 
-  const trainsQuery = useQuery<Train[]>({
-    queryKey: ['trains', scenarioId],
-    queryFn: () => api.getTrains(scenarioId!),
-    enabled: !!scenarioId && !recovery
-  })
-
-  // Same query key as in Planning, so the card reuses the loaded calendar.
-  const calendar = useQuery({ queryKey: ['calendar', planId], queryFn: () => api.getCalendar(planId!), enabled: !!planId })
-  const fleetTrains: Train[] | undefined = recovery
-    ? recovery.trains.map(t=>({...t,nextObligation:`Уборка: ${t.tripsSinceCleaning ?? 'неизвестно'} / 4 рейса`}))
-    : trainsQuery.data
-  const card = fleetTrains?.find(t=>t.id===cardId)
+  // The planner works on the latest calculation; the approved one is the before/after base.
+  const view = usePlanView(undefined, ws.approvedPlanId)
 
   return (
     <>
@@ -183,44 +160,11 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
           {caseData && <p><strong>{caseData.trainCount} составов · {caseData.tripCount} рейсов · 14 суток</strong></p>}
           {importMutation.isError && <p className="error">Ошибка: {importMutation.error.message}</p>}
         </section>
-        {trainsQuery.isError && <p className="error">Ошибка: {trainsQuery.error.message}</p>}
         {resumed.isFetching && !source && <p className="muted">Восстанавливаем оперативный сценарий из PostgreSQL…</p>}
         {resumed.isError && !source && <p className="error">Не удалось восстановить сценарий: {resumed.error.message}</p>}
         {recovery && <RecoveryConsole key={recovery.id} board={recovery} onChange={setRecovery} />}
 
-        {fleetTrains && fleetTrains.length > 0 && (
-          <section className="card">
-            <h2 className="pad-h"><Icon name="train" />Парк</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Состав</th>
-                  <th>Статус</th>
-                  <th className="num">Пробег, км</th>
-                  <th>{recovery ? 'Уборка' : 'Ближайшее ТО'}</th>
-                  {recovery && <th>Местонахождение</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {fleetTrains.map((t) => (
-                  <tr key={t.id}>
-                    <td>
-                      <button className="link" onClick={() => setCardId(t.id)} title="Карточка поезда">{t.externalId}</button>
-                    </td>
-                    <td>
-                      <span className={`badge ${t.status}`}>{t.status === 'FAILED' ? 'Неисправен' : ru(t.status)}</span>
-                    </td>
-                    <td className="num">{t.mileageKm.toLocaleString('ru-RU')}</td>
-                    <td>{t.nextObligation}</td>
-                    {recovery && <td>{recovery.trains.find(train=>train.id===t.id)?.location.replace(/SPB_DEPOT/g,'Санкт-Петербург').replace(/MOSCOW/g,'Москва')}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        )}
-
-        {card && <TrainCard train={card} calendar={calendar.data} onClose={() => setCardId(null)} />}
+        <InboxSection calendar={view.calendar} activePlanId={view.activePlanId} />
 
         {source && shortDemo && (
           <section className="card pad">
@@ -239,13 +183,16 @@ function Fleet({ canApprove }: { canApprove: boolean }) {
           </section>
         )}
         {source && !recovery && (caseData?.planningSupported !== false
-          ? <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data}
-              canApprove={canApprove} onPlan={setPlanId} />
+          ? <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trains}
+              canApprove={canApprove} onPlan={setPlanId} initialPlanId={planId}
+              onApproved={(id) => setWs((w) => ({ ...w, planId: id, approvedPlanId: id }))} />
           : <p className="muted">Расчёт для полного парка появится после подключения резерва, уборки и закреплённых работ. Для расчёта выберите набор из 6 составов.</p>)}
-        <section className="card">
-          <h2 className="pad-h"><Icon name="bell" />Сообщения диспетчера</h2>
-          <IncidentLog />
-        </section>
+        {planId && view.activePlanId && planId !== view.activePlanId && (
+          <section className="card pad">
+            <h2><Icon name="plan" />Сравнение с действующим планом</h2>
+            <PlanCompare beforeId={view.activePlanId} afterId={planId} />
+          </section>
+        )}
     </>
   )
 }

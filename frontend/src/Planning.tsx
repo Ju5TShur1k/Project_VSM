@@ -33,12 +33,16 @@ export default function Planning({
   scenarioId,
   trains,
   canApprove,
-  onPlan
+  onPlan,
+  initialPlanId,
+  onApproved
 }: {
   scenarioId: string
   trains: Train[] | undefined
   canApprove: boolean
   onPlan: (planId: string | undefined) => void
+  initialPlanId?: string // restores the last plan after a page reload
+  onApproved?: (planId: string) => void
 }) {
   const qc = useQueryClient()
   const [jobId, setJobId] = useState<string | null>(null)
@@ -58,14 +62,14 @@ export default function Planning({
   })
   const running = start.isPending || ['QUEUED', 'RUNNING'].includes(job.data?.status ?? '')
 
-  const planId = job.data?.planId ?? undefined
+  const planId = job.data?.planId ?? (jobId ? undefined : initialPlanId)
   useEffect(() => onPlan(planId), [planId, onPlan])
   const plan = useQuery({ queryKey: ['plan', planId], queryFn: () => api.getPlan(planId!), enabled: !!planId })
   const calendar = useQuery({ queryKey: ['calendar', planId], queryFn: () => api.getCalendar(planId!), enabled: !!planId })
 
   const approve = useMutation({
     mutationFn: () => api.approve(planId!, plan.data!.version, comment),
-    onSuccess: (p) => qc.setQueryData(['plan', planId], p),
+    onSuccess: (p) => { qc.setQueryData(['plan', planId], p); onApproved?.(p.id) },
     onError: (e) => {
       if (e instanceof Conflict) qc.invalidateQueries({ queryKey: ['plan', planId] })
     }
@@ -73,7 +77,7 @@ export default function Planning({
 
   const p = plan.data
   const trainName = new Map(trains?.map((t) => [t.id, t.externalId]))
-  const solver = job.data?.solverStatus ?? ''
+  const solver = job.data?.solverStatus ?? calendar.data?.solverStatus ?? ''
   const blocked = p ? blocker(p, solver) : null
   const error = [start, job, plan, calendar, approve].find((q) => q.isError)?.error
 
