@@ -95,8 +95,14 @@ public class ApiController {
     }
 
     @GetMapping("/current-plan")
-    public Dto.CurrentPlan currentPlan() {
-        return service.currentPlan();
+    public Dto.CurrentPlan currentPlan(@RequestParam(required=false) UUID scenarioId) {
+        return service.currentPlan(scenarioId);
+    }
+
+    @GetMapping("/plans/active")
+    public ResponseEntity<Dto.Plan> activePlan(@RequestParam(required=false) UUID scenarioId) {
+        UUID id=service.currentPlan(scenarioId).planId();
+        return id==null?ResponseEntity.noContent().build():ResponseEntity.ok(service.getPlan(id));
     }
 
     @GetMapping("/incidents")

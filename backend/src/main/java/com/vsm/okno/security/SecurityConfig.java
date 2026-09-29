@@ -37,10 +37,15 @@ public class SecurityConfig {
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         return http
                 .authorizeHttpRequests(a -> a
+                        .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
-                        // Dispatcher: sees the current plan, reports incidents. Nothing else.
+                        .requestMatchers(HttpMethod.POST,"/api/v1/scenarios/*/rule-versions").hasRole("TECHNOLOGIST")
+                        .requestMatchers(HttpMethod.POST,"/api/v1/scenarios/*/requests").hasAnyRole("DISPATCHER","PLANNER")
+                        .requestMatchers(HttpMethod.POST,"/api/v1/change-requests").hasAnyRole("DISPATCHER","PLANNER","TECHNOLOGIST")
+                        .requestMatchers(HttpMethod.GET,"/api/v1/requests/**","/api/v1/change-requests/**","/api/v1/scenarios/**","/api/v1/planning-jobs/*").hasAnyRole("DISPATCHER","PLANNER","TECHNOLOGIST")
+                        // Reading/reporting a need is distinct from calculating or signing off.
                         .requestMatchers("/api/v1/auth/**", "/api/v1/incidents", "/api/v1/current-plan").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/plans/*", "/api/v1/plans/*/calendar").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/plans/*", "/api/v1/plans/*/calendar", "/api/v1/plans/*/export").authenticated()
                         // Only the planner signs a plan off.
                         .requestMatchers(HttpMethod.POST, "/api/v1/plans/*/approve").hasRole("PLANNER")
                         // Loading data and calculating: planner and technologist.
