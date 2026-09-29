@@ -13,6 +13,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.vsm.okno.validation.IndependentIntervalAudit;
 
 class OperationalPlanningTest {
     private static final OffsetDateTime START = OffsetDateTime.of(2028, 7, 1, 0, 0, 0, 0, ZoneOffset.ofHours(3));
@@ -20,6 +21,29 @@ class OperationalPlanningTest {
     private static final UUID WORK = id("e3-work");
     private static final UUID RESERVE = id("e3-reserve");
     private static final UUID SERVICE = id("e3-service");
+
+    @Test
+    void solverSelectsTheAvailableDepotPathAndAuditAcceptsThatAssignment() {
+        var work = new ScenarioSnapshot.ServiceBlock(SERVICE, WORK, "PATH-1", 30,
+                0, 60, List.of(), ScenarioSnapshot.ServiceBlock.Kind.MAINTENANCE,
+                List.of("PATH-1", "PATH-2"));
+        var operations = new OperationalConstraints(Set.of(),
+                List.of(new OperationalConstraints.FixedOccupancy(id("path-1-down"), null,
+                        "PATH-1", 0, 60, OperationalConstraints.Kind.RESOURCE_OUTAGE, "synthetic")),
+                List.of(new OperationalConstraints.ServiceWindow(WORK, "PATH-1", 0, 60, "synthetic"),
+                        new OperationalConstraints.ServiceWindow(WORK, "PATH-2", 0, 60, "synthetic")),
+                List.of());
+        var snapshot = new ScenarioSnapshot("1.3", SCENARIO, "two-paths", "synthetic",
+                START, START.plusMinutes(60), List.of(new ScenarioSnapshot.Train(WORK, "WORK")),
+                List.of(new ScenarioSnapshot.Resource("PATH-1"), new ScenarioSnapshot.Resource("PATH-2")),
+                List.of(work), List.of(), operations);
+
+        var result = new CpSatPlanner().plan(snapshot,
+                request(snapshot, PlannerRequest.Policy.BLOCKS_CP_SAT, 0));
+        assertEquals(PlannerResult.SolverStatus.OPTIMAL, result.solverStatus());
+        assertEquals("PATH-2", result.blocks().getFirst().resourceId());
+        assertTrue(IndependentIntervalAudit.check(snapshot, result).isEmpty());
+    }
 
     @Test
     void checkedLocationTransferAndResourceOutageConstrainBothPolicies() {

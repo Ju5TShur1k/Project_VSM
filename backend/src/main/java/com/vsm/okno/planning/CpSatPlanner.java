@@ -5,6 +5,7 @@ import com.google.ortools.sat.CpModel;
 import com.google.ortools.sat.CpSolver;
 import com.google.ortools.sat.CpSolverStatus;
 import com.google.ortools.sat.CumulativeConstraint;
+import com.google.ortools.sat.BoolVar;
 import com.google.ortools.sat.Literal;
 import com.google.ortools.sat.IntVar;
 import com.google.ortools.sat.IntervalVar;
@@ -20,7 +21,8 @@ import java.util.UUID;
 
 /** CP-SAT placement of indivisible work under the prepared snapshot's hard constraints. */
 public final class CpSatPlanner implements Planner {
-    private record Variables(IntVar start, IntVar end, IntervalVar interval) {}
+    private record Variables(IntVar start, IntVar end, IntervalVar interval,
+                             Map<String, BoolVar> resourceChoices) {}
 
     @Override
     public PlannerResult plan(ScenarioSnapshot snapshot, PlannerRequest request) {
@@ -55,9 +57,22 @@ public final class CpSatPlanner implements Planner {
                     block.latestEndMinute(), "end_" + suffix);
             IntervalVar interval = model.newIntervalVar(start, LinearExpr.constant(block.durationMinutes()),
                     end, "block_" + suffix);
-            byBlock.put(block.id(), new Variables(start, end, interval));
+            Map<String, BoolVar> resourceChoices = new LinkedHashMap<>();
             byTrain.computeIfAbsent(block.trainId(), ignored -> new ArrayList<>()).add(interval);
-            byResource.computeIfAbsent(block.resourceId(), ignored -> new ArrayList<>()).add(interval);
+            if (block.allowedResourceIds().size() == 1) {
+                byResource.computeIfAbsent(block.resourceId(), ignored -> new ArrayList<>()).add(interval);
+            } else {
+                for (String resourceId : block.allowedResourceIds()) {
+                    BoolVar selected = model.newBoolVar("resource_" + suffix + "_" + resourceId);
+                    resourceChoices.put(resourceId, selected);
+                    IntervalVar assigned = model.newOptionalIntervalVar(start,
+                            LinearExpr.constant(block.durationMinutes()), end, selected,
+                            "block_" + suffix + "_" + resourceId);
+                    byResource.computeIfAbsent(resourceId, ignored -> new ArrayList<>()).add(assigned);
+                }
+                model.addExactlyOne(resourceChoices.values().toArray(new Literal[0]));
+            }
+            byBlock.put(block.id(), new Variables(start, end, interval, Map.copyOf(resourceChoices)));
             if (reserve != null && reserve.eligibleTrainIds().contains(block.trainId())) {
                 reserveUnavailable.addDemand(interval, 1);
             }
@@ -74,9 +89,12 @@ public final class CpSatPlanner implements Planner {
                 List<Literal> choices = new ArrayList<>();
                 for (OperationalConstraints.ServiceWindow window : snapshot.operations().serviceWindows()) {
                     if (!window.trainId().equals(block.trainId())
-                            || !window.resourceId().equals(block.resourceId())) continue;
+                            || !block.allowedResourceIds().contains(window.resourceId())) continue;
                     Literal choice = model.newBoolVar("window_" + suffix + "_" + choices.size());
                     choices.add(choice);
+                    if (!resourceChoices.isEmpty()) {
+                        model.addImplication(choice, resourceChoices.get(window.resourceId()));
+                    }
                     model.addGreaterOrEqual(start, window.startMinute()).onlyEnforceIf(choice);
                     model.addLessOrEqual(end, window.endMinute()).onlyEnforceIf(choice);
                 }
@@ -157,7 +175,11 @@ public final class CpSatPlanner implements Planner {
         if (status == PlannerResult.SolverStatus.OPTIMAL || status == PlannerResult.SolverStatus.FEASIBLE) {
             for (ScenarioSnapshot.ServiceBlock block : snapshot.blocks()) {
                 Variables variables = byBlock.get(block.id());
-                planned.add(new PlannerResult.PlannedBlock(block.id(), block.trainId(), block.resourceId(),
+                String chosenResource = block.resourceId();
+                for (var choice : variables.resourceChoices().entrySet()) {
+                    if (solver.booleanValue(choice.getValue())) chosenResource = choice.getKey();
+                }
+                planned.add(new PlannerResult.PlannedBlock(block.id(), block.trainId(), chosenResource,
                         snapshot.horizonStart().plusMinutes(solver.value(variables.start())),
                         snapshot.horizonStart().plusMinutes(solver.value(variables.end()))));
             }

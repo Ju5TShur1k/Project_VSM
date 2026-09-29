@@ -94,7 +94,9 @@ public record ScenarioSnapshot(
                 throw new IllegalArgumentException("typed blocks require snapshot schemaVersion 1.3");
             }
             if (!trainIds.contains(block.trainId())) throw new IllegalArgumentException("unknown train: " + block.trainId());
-            if (!resourceIds.contains(block.resourceId())) throw new IllegalArgumentException("unknown resource: " + block.resourceId());
+            if (!resourceIds.containsAll(block.allowedResourceIds())) {
+                throw new IllegalArgumentException("unknown resource option for block: " + block.id());
+            }
             if (block.latestEndMinute() > horizonMinutes) {
                 throw new IllegalArgumentException("block window exceeds horizon: " + block.id());
             }
@@ -250,12 +252,19 @@ public record ScenarioSnapshot(
             int earliestStartMinute,
             int latestEndMinute,
             List<UUID> predecessorIds,
-            Kind kind
+            Kind kind,
+            List<String> allowedResourceIds
     ) {
         public ServiceBlock(UUID id, UUID trainId, String resourceId, int durationMinutes,
                             int earliestStartMinute, int latestEndMinute, List<UUID> predecessorIds) {
             this(id, trainId, resourceId, durationMinutes, earliestStartMinute, latestEndMinute,
-                    predecessorIds, Kind.GENERAL);
+                    predecessorIds, Kind.GENERAL, List.of(resourceId));
+        }
+
+        public ServiceBlock(UUID id, UUID trainId, String resourceId, int durationMinutes,
+                            int earliestStartMinute, int latestEndMinute, List<UUID> predecessorIds, Kind kind) {
+            this(id, trainId, resourceId, durationMinutes, earliestStartMinute, latestEndMinute,
+                    predecessorIds, kind, List.of(resourceId));
         }
 
         public ServiceBlock {
@@ -264,6 +273,12 @@ public record ScenarioSnapshot(
             requireText(resourceId, "resourceId");
             predecessorIds = List.copyOf(Objects.requireNonNull(predecessorIds, "predecessorIds"));
             Objects.requireNonNull(kind, "kind");
+            allowedResourceIds = List.copyOf(Objects.requireNonNull(allowedResourceIds, "allowedResourceIds"));
+            if (allowedResourceIds.isEmpty() || !allowedResourceIds.contains(resourceId)
+                    || allowedResourceIds.stream().anyMatch(option -> option == null || option.isBlank())
+                    || new HashSet<>(allowedResourceIds).size() != allowedResourceIds.size()) {
+                throw new IllegalArgumentException("invalid resource options for block: " + id);
+            }
             if (durationMinutes <= 0 || earliestStartMinute < 0 || latestEndMinute < 0
                     || (long) earliestStartMinute + durationMinutes > latestEndMinute) {
                 throw new IllegalArgumentException("invalid block duration/window: " + id);

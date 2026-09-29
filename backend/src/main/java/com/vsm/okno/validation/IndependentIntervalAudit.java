@@ -65,7 +65,7 @@ public final class IndependentIntervalAudit {
                 continue;
             }
             if (!expected.trainId().equals(planned.trainId())
-                    || !expected.resourceId().equals(planned.resourceId())) {
+                    || !expected.allowedResourceIds().contains(planned.resourceId())) {
                 add(findings, "BLOCK_ASSIGNMENT_CHANGED", "Изменён поезд или ресурс работы " + planned.blockId());
                 continue;
             }
