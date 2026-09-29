@@ -2,10 +2,15 @@ package com.vsm.okno;
 
 import com.vsm.okno.data.CaseDatasetService;
 import com.vsm.okno.data.SourceSnapshotE2Adapter;
+import com.vsm.okno.data.SourceSnapshotE3Adapter;
 import com.vsm.okno.data.SourceSnapshotRepository;
 import com.vsm.okno.planning.CpSatPlanner;
+import com.vsm.okno.planning.E3FeasibilityAudit;
 import com.vsm.okno.planning.PlannerRequest;
 import com.vsm.okno.planning.PlannerResult;
+import com.vsm.okno.planning.OperationalConstraints;
+import com.vsm.okno.planning.ScenarioSnapshot;
+import com.vsm.okno.validation.E3SourcePlanAudit;
 import com.vsm.okno.validation.IndependentIntervalAudit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -26,6 +31,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Dedicated test DB only: persisted model fleet, solver, raw-source cross-check and HTTP approval gate. */
 @SpringBootTest
@@ -82,6 +89,60 @@ class CaseFleetIntegrationTest {
                 .findFirst().orElseThrow().mileageKm());
         assertThrows(IllegalArgumentException.class, () -> new SourceSnapshotE2Adapter().project(
                 snapshots.findById(first.source().snapshotId()).orElseThrow()));
+    }
+
+    @Test
+    @Transactional
+    void fullFleetProjectionCarriesTripsPathsCleaningFrozenWorkAndReserve() throws Exception {
+        var loaded = datasets.load(CaseDatasetService.Dataset.FULL43).response();
+        var saved = snapshots.findById(loaded.source().snapshotId()).orElseThrow();
+        var projection = new SourceSnapshotE3Adapter().project(saved);
+        var source = projection.snapshot();
+        assertEquals("1.4", source.schemaVersion());
+        assertEquals(43, source.trains().size());
+        assertEquals(1428, source.fixedTrips().size());
+        assertEquals(4, source.operations().protectedReserveTrainIds().size());
+        assertEquals(350, source.operations().fixedOccupancies().size());
+        assertTrue(source.blocks().stream().allMatch(b -> b.allowedResourceIds().size() == 5));
+        assertTrue(source.blocks().stream().anyMatch(b -> b.durationMinutes() >= 10 * 60));
+        assertTrue(source.operations().serviceWindows().size() > 1000);
+        // The modelled turns leave no 10+ hour maintenance gap for some trains.
+        // The correct result requires trip reassignment; a source adapter alone
+        // must not label FULL43 as a feasible approved plan.
+        assertTrue(E3FeasibilityAudit.noContiguousWindows(source, projection.obligations()).stream()
+                .anyMatch(d -> d.code().equals("E3_NO_CONTIGUOUS_SERVICE_WINDOW")));
+        String assessment = mvc.perform(get("/api/v1/source-snapshots/{id}/e3-assessment",
+                        saved.id())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertTrue(assessment.contains("\"snapshotHash\":\"" + saved.snapshotHash() + "\""));
+        assertTrue(assessment.contains("\"fixedAssignmentStatus\":\"BLOCKED_BY_FIXED_ASSIGNMENTS\""));
+        assertTrue(assessment.contains("\"d2Status\":\"NOT_PERFORMED\""));
+        var result = new PlannerResult("1.0", source.scenarioId(), source.snapshotHash(),
+                PlannerRequest.Policy.WHOLE_CYCLE_CP_SAT, PlannerResult.SolverStatus.INFEASIBLE,
+                List.of(), List.of(), 1, 0, null);
+        var sourceReport = new E3SourcePlanAudit().report(saved, source, result);
+        assertEquals("FAILED", sourceReport.status());
+        assertTrue(sourceReport.findings().stream().noneMatch(f -> f.code().startsWith("D2_E3_")));
+
+        var missingTrip = new ScenarioSnapshot(source.schemaVersion(), source.scenarioId(),
+                source.snapshotHash(), source.provenance(), source.horizonStart(), source.horizonEnd(),
+                source.trains(), source.resources(), source.blocks(), source.fixedTrips().subList(1,
+                source.fixedTrips().size()), source.operations());
+        assertTrue(new E3SourcePlanAudit().report(saved, missingTrip, result).findings().stream()
+                .anyMatch(f -> f.code().equals("D2_E3_TRIP_SET")));
+
+        var facts = source.operations();
+        var missingOccupancy = new OperationalConstraints(facts.protectedReserveTrainIds(),
+                facts.fixedOccupancies().subList(1, facts.fixedOccupancies().size()),
+                facts.serviceWindows(), facts.frozenPlacements(), facts.releaseRequirements(), facts.hotReserve());
+        var altered = new ScenarioSnapshot(source.schemaVersion(), source.scenarioId(),
+                source.snapshotHash(), source.provenance(), source.horizonStart(), source.horizonEnd(),
+                source.trains(), source.resources(), source.blocks(), source.fixedTrips(), missingOccupancy);
+        assertTrue(new E3SourcePlanAudit().report(saved, altered, result).findings().stream()
+                .anyMatch(f -> f.code().equals("D2_E3_OCCUPANCY_SET")));
+
+        var e2 = datasets.load(CaseDatasetService.Dataset.E2_6).response();
+        mvc.perform(get("/api/v1/source-snapshots/{id}/e3-assessment", e2.source().snapshotId()))
+                .andExpect(status().isUnprocessableEntity());
     }
 
     @Test

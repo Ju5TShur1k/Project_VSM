@@ -153,7 +153,7 @@ public class PlanningService {
         scenario.trains = loaded.trains();
         scenario.sourceSnapshotId = response.source().snapshotId();
         if (!response.planningSupported()) scenario.planningUnsupportedReason =
-                "FULL43 содержит резерв, уборку и закреплённые работы; необходим адаптер E3. Используйте E2_6 для проверки расчёта.";
+                "FULL43: при фиксированном закреплении рейсов для длительных ТО нет достаточных окон. Нужны переназначение рейсов и полная независимая D2-проверка. E3 assessment доступен по ID source snapshot.";
         store.scenarios.put(scenario.id, scenario);
         return response;
     }

@@ -15,7 +15,8 @@ import java.util.List;
 @Profile("database")
 public final class DatabasePlanValidator implements PlanValidator {
     private final SourceSnapshotRepository repository;
-    private final SourcePlanAudit audit = new SourcePlanAudit();
+    private final SourcePlanAudit e2Audit = new SourcePlanAudit();
+    private final E3SourcePlanAudit e3Audit = new E3SourcePlanAudit();
 
     public DatabasePlanValidator(SourceSnapshotRepository repository) { this.repository = repository; }
 
@@ -24,6 +25,9 @@ public final class DatabasePlanValidator implements PlanValidator {
     }
 
     @Override public ValidationReport report(ScenarioSnapshot source, PlannerResult result) {
-        return audit.report(repository.findByScenarioAndHash(source.scenarioId(), source.snapshotHash()).orElse(null), source, result);
+        var saved = repository.findByScenarioAndHash(source.scenarioId(), source.snapshotHash()).orElse(null);
+        return "1.4".equals(source.schemaVersion())
+                ? e3Audit.report(saved, source, result)
+                : e2Audit.report(saved, source, result);
     }
 }

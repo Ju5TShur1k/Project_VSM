@@ -120,7 +120,7 @@ paths:
   /demo/case-source:
     post:
       summary: Load additive case-derived model datasets and capture the saved source
-      description: Numeric norms come from case 06; histories, dates and trips are modelled. FULL43 cannot be planned by the E2 adapter.
+      description: Numeric norms come from case 06; histories, dates and trips are modelled. FULL43 has an E3 assessment, but no approved 14-day plan yet.
       parameters:
         - in: query
           name: dataset
@@ -134,6 +134,28 @@ paths:
               schema: { $ref: '#/components/schemas/CaseDataset' }
         '422':
           description: Invalid dataset or missing database profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /source-snapshots/{id}/e3-assessment:
+    get:
+      summary: Assess whether the saved full-fleet source has a necessary service window for each work
+      description: Read-only preflight. A result without blockers does not prove feasibility or D2 approval.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: Full-fleet fixed-assignment assessment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/E3Assessment' }
+        '404':
+          description: Snapshot not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: Snapshot does not contain supported E3 source facts
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
@@ -587,6 +609,29 @@ components:
         tripCount: { type: integer }
         planningSupported: { type: boolean }
         warnings: { type: array, items: { type: string } }
+    E3Assessment:
+      type: object
+      required: [scenarioId, sourceSnapshotId, snapshotHash, provenance, trainCount, tripCount, requiredWorkCount, fixedAssignmentStatus, d2Status, blockers]
+      properties:
+        scenarioId: { type: string, format: uuid }
+        sourceSnapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        provenance: { type: string }
+        trainCount: { type: integer }
+        tripCount: { type: integer }
+        requiredWorkCount: { type: integer }
+        fixedAssignmentStatus:
+          type: string
+          enum: [BLOCKED_BY_FIXED_ASSIGNMENTS, NECESSARY_WINDOWS_PRESENT]
+        d2Status: { type: string, const: NOT_PERFORMED }
+        blockers:
+          type: array
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string }
+              message: { type: string }
     DemoSource:
       type: object
       properties:
