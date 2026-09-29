@@ -109,13 +109,57 @@ public final class E3CandidateProjection {
         var original = source.operations();
         // Reserve use is measured by the separate city assessment. This candidate
         // model must not silently apply the old four-train hard reserve constraint.
-        var operations = new OperationalConstraints(Set.of(), original.fixedOccupancies(),
+        Set<UUID> released = unneededCleanings(root, byTrain, changedTrains);
+        var fixed = original.fixedOccupancies().stream().filter(o -> !released.contains(o.id())).toList();
+        var operations = new OperationalConstraints(Set.of(), fixed,
                 windows, original.frozenPlacements(), original.releaseRequirements(), null);
         var snapshot = new ScenarioSnapshot("1.3", source.scenarioId(), saved.snapshotHash(),
                 source.provenance() + "; E3 candidate with reassigned trips", horizonStart,
                 source.horizonEnd(), source.trains(), source.resources(), recalculated.blocks(),
                 recalculated.effectiveTrips(), operations);
         return new Projection(snapshot, recalculated.obligations());
+    }
+
+    /**
+     * Planned cleanings follow the trips a train runs: one after its fourth trip,
+     * before the fifth. A train that gave away or took over trips keeps only the
+     * source cleanings that still sit in such a gap of its new sequence; the others
+     * no longer bind it (they would split its freed maintenance window). Gaps without
+     * a source cleaning are placed by the solver - E3CleaningCoverageAssessment uses
+     * the same rule, so no required cleaning disappears.
+     */
+    private static Set<UUID> unneededCleanings(JsonNode root,
+                                               Map<UUID, List<E3TripAssignmentLedger.AssignedTrip>> byTrain,
+                                               Set<UUID> changedTrains) {
+        Map<UUID, Integer> counter = new HashMap<>();
+        Map<UUID, OffsetDateTime> observed = new HashMap<>();
+        for (JsonNode row : root.path("cleaningCounters")) {
+            UUID train = UUID.fromString(row.path("train_id").asText());
+            OffsetDateTime at = OffsetDateTime.parse(row.path("observed_at").asText());
+            if (observed.containsKey(train) && !at.isAfter(observed.get(train))) continue;
+            observed.put(train, at);
+            counter.put(train, row.path("completed_trips_since_cleaning").asInt());
+        }
+        Set<UUID> unneeded = new HashSet<>();
+        for (JsonNode row : root.path("trainOccupancy")) {
+            if (!"CLEANING".equals(row.path("kind").asText())) continue;
+            UUID train = UUID.fromString(row.path("train_id").asText());
+            if (!changedTrains.contains(train) || !counter.containsKey(train)) continue;
+            OffsetDateTime from = OffsetDateTime.parse(row.path("starts_at").asText());
+            OffsetDateTime to = OffsetDateTime.parse(row.path("ends_at").asText());
+            var trips = byTrain.getOrDefault(train, List.of()).stream()
+                    .sorted(Comparator.comparing(E3TripAssignmentLedger.AssignedTrip::departureAt)
+                            .thenComparing(E3TripAssignmentLedger.AssignedTrip::id)).toList();
+            boolean needed = false;
+            int since = counter.get(train);
+            for (int i = 0; i + 1 < trips.size() && !needed; i++) {
+                if (++since != 4) continue;
+                since = 0;
+                needed = !from.isBefore(trips.get(i).arrivalAt()) && !to.isAfter(trips.get(i + 1).departureAt());
+            }
+            if (!needed) unneeded.add(UUID.fromString(row.path("id").asText()));
+        }
+        return unneeded;
     }
 
     private static void addWindows(List<OperationalConstraints.ServiceWindow> target,

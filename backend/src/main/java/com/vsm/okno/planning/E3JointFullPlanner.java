@@ -16,6 +16,7 @@ public final class E3JointFullPlanner {
         public Result { effectiveTrainByTrip = Map.copyOf(effectiveTrainByTrip); }
     }
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(E3JointFullPlanner.class);
     private final Planner solver;
 
     public E3JointFullPlanner(Planner solver) { this.solver = solver; }
@@ -32,8 +33,12 @@ public final class E3JointFullPlanner {
         var full = new E3FullCandidateSolver(solver);
         var rotationSearch = new E3RotationCandidateSearch();
         for (int moves = 0; moves <= input.maxMoves(); moves++) {
+            long t0 = System.nanoTime();
             var proposed = full.solve(saved, new E3FullCandidateSolver.Input(input.frozenUntil(),
                     input.preparationMinutes(), candidate, input.seed(), input.timeLimitSec()));
+            log.info("E3 full draft move {}: solve {} ms, solver {}, blockers {}, changed trips {}", moves,
+                    (System.nanoTime() - t0) / 1_000_000, proposed.modelSolverStatus(),
+                    proposed.diagnostics().size(), candidate.size());
             if (("FEASIBLE".equals(proposed.modelSolverStatus())
                     || "OPTIMAL".equals(proposed.modelSolverStatus()))
                     && "PASS".equals(proposed.structuralStatus()))
@@ -45,8 +50,12 @@ public final class E3JointFullPlanner {
                 return result(saved, "CLEANING_SOURCE_OR_WINDOW_BLOCKED", moves, candidate, proposed);
             if (moves == input.maxMoves())
                 return result(saved, "MOVE_LIMIT_REACHED", moves, candidate, proposed);
+            long t1 = System.nanoTime();
             var rotation = rotationSearch.search(saved, candidate, input.frozenUntil(),
                     input.preparationMinutes(), input.maxEvaluationsPerMove());
+            log.info("E3 full draft move {}: rotation search {} ms, {} evaluated, {} -> {} blocked", moves,
+                    (System.nanoTime() - t1) / 1_000_000, rotation.evaluatedAssignments(),
+                    rotation.initialBlockedWorks(), rotation.remainingBlockedWorks());
             if (!"IMPROVING_ROTATION_FOUND".equals(rotation.searchStatus()))
                 return result(saved, rotation.searchStatus(), moves, candidate, proposed);
             candidate = rotation.effectiveTrainByTrip();

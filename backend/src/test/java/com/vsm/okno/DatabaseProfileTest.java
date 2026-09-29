@@ -36,9 +36,9 @@ class DatabaseProfileTest {
 
     @Test
     void databaseProfileAppliesMigrationsAndCreatesSnapshotStorage() {
-        assertEquals(8, jdbc.queryForObject(
+        assertEquals(9, jdbc.queryForObject(
                 "select count(*) from flyway_schema_history where success and type = 'SQL'", Integer.class));
-        assertEquals(35, jdbc.queryForObject(
+        assertEquals(37, jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = 'vsm' and table_type = 'BASE TABLE'", Integer.class));
         // Known SHA-256 of the exact canonical bytes "{}" (no newline).
         assertEquals("44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",

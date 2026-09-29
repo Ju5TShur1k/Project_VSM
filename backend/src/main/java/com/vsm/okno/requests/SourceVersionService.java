@@ -110,6 +110,40 @@ public class SourceVersionService {
         return receipt(requestId);
     }
 
+    /**
+     * One uploaded schedule = one new source version: every trip change/addition is
+     * applied to the same copy and captured once. Validation is the same as for a
+     * single request; any bad row rolls the whole upload back.
+     */
+    @Transactional public Receipt importSchedule(UUID scenarioId, int expectedVersion, List<JsonNode> changes,
+                                                 String source, String actor) {
+        check(!changes.isEmpty(), "schedule", "has no changes against the current data");
+        Version parent=version(scenarioId);
+        Version current=lockHead(parent.rootId());
+        if (!current.scenarioId().equals(parent.scenarioId()) || current.version()!=expectedVersion)
+            throw new PlanningService.VersionConflictException(current.version());
+        UUID next=UUID.randomUUID(), requestId=UUID.randomUUID();
+        copyFacts(parent.scenarioId(),next);
+        for (JsonNode change:changes) {
+            String kind=text(change,"kind");
+            check(Set.of("TRIP_CHANGE","TRIP_ADD").contains(kind),"kind","schedule rows change or add trips");
+            trip(next,change,source,kind);
+        }
+        var saved=snapshots.capture(next);
+        jdbc.update("insert into vsm.scenario_version(scenario_id,root_id,version,parent_scenario_id,snapshot_id,created_by) values (?,?,?,?,?,?)",
+                next,parent.rootId(),parent.version()+1,parent.scenarioId(),saved.id(),actor);
+        jdbc.update("update vsm.scenario_head set scenario_id=?,version=? where root_id=?",next,parent.version()+1,parent.rootId());
+        jdbc.update("update vsm.plan_selection set latest_draft_id=null,updated_at=now() where root_id=?",parent.rootId());
+        String body=json.writeValueAsString(json.createObjectNode().put("kind","SCHEDULE_IMPORT").set("changes",json.valueToTree(changes)));
+        jdbc.update("""
+                insert into vsm.change_request(id,root_id,base_scenario_id,new_scenario_id,snapshot_id,kind,train_id,trip_id,
+                  reason,source,reported_by,idempotency_key,command) values (?,?,?,?,?,'SCHEDULE_IMPORT',null,null,?,?,?,?,?::jsonb)
+                """,requestId,parent.rootId(),parent.scenarioId(),next,saved.id(),
+                "Загружено расписание: изменений " + changes.size(),source,actor,"schedule:"+requestId,body);
+        event(requestId,"RECEIVED",actor,null,null,null,"Новая версия исходных данных из CSV сохранена");
+        return receipt(requestId);
+    }
+
     public Version lockHead(UUID rootId) {
         UUID id=jdbc.queryForObject("select scenario_id from vsm.scenario_head where root_id=? for update",UUID.class,rootId);
         return version(id);

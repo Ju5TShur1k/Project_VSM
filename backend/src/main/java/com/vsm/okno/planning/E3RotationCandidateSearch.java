@@ -26,9 +26,9 @@ public final class E3RotationCandidateSearch {
         public Candidate { effectiveTrainByTrip = Map.copyOf(effectiveTrainByTrip); }
     }
     private record Reserve(UUID id, String city) {}
-    private record Scored(Map<UUID, UUID> changes, int blocked) {}
+    private record Scored(Map<UUID, UUID> changes, int blocked, int workMinutes) {}
     private record Proposal(UUID blockedId, int first, int last, Reserve reserve,
-                            int overlapMinutes, int tripCount) {}
+                            boolean freesWholeWork, int tripCount) {}
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -66,6 +66,9 @@ public final class E3RotationCandidateSearch {
                         row.path("location").asText()));
         }
         reserves.sort(Comparator.comparing(Reserve::id));
+        Map<String, String> resourceCity = new HashMap<>();
+        for (JsonNode row : root.path("resources"))
+            resourceCity.put(row.path("id").asText(), row.path("location").asText());
         Map<UUID, List<E3TripAssignmentLedger.AssignedTrip>> byTrain = new HashMap<>();
         for (var trip : original.trips())
             byTrain.computeIfAbsent(trip.effectiveTrainId(), ignored -> new ArrayList<>()).add(trip);
@@ -75,43 +78,54 @@ public final class E3RotationCandidateSearch {
         Map<UUID, ScenarioSnapshot.ServiceBlock> blockById = new HashMap<>();
         for (var block : initial.blocks()) blockById.put(block.id(), block);
 
-        // Work near the end of the horizon used to be starved by the first 32
-        // chronological rotations. Rank complete return rotations by the time
-        // they free inside the blocked work's own window, then share the bounded
-        // evaluation budget among distinct blocked trains.
+        // A rotation only helps if the freed train waits in a city that has a path
+        // allowed for its work. Among those, try first the rotations whose freed
+        // time (previous arrival .. next departure, minus preparation) holds the
+        // whole work, and the shortest of them: a long rotation ties up the reserve
+        // for days and adds reserve mileage, which creates new obligations.
         List<List<Proposal>> proposals = new ArrayList<>();
         for (UUID blockedId : blockedIds) {
             var work = blockById.get(blockedId);
+            var cities = work.allowedResourceIds().stream().map(resourceCity::get).collect(java.util.stream.Collectors.toSet());
             var trips = byTrain.getOrDefault(work.trainId(), List.of());
             List<Proposal> forWork = new ArrayList<>();
             for (int first = 0; first < trips.size(); first++) {
                 var leading = trips.get(first);
                 int start = minute(initial, leading.departureAt());
-                if (leading.departureAt().isBefore(frozenUntil)
+                if (leading.departureAt().isBefore(frozenUntil) || !cities.contains(leading.origin())
                         || start > work.latestEndMinute() - work.durationMinutes()) continue;
-                // A long IS530/IS540 can need more than two days of transferred
-                // trips. The full rotation must still return to its first city.
+                int freeFrom = first == 0 ? 0 : minute(initial, trips.get(first - 1).arrivalAt()) + preparationMinutes;
+                // The full rotation must return to its first city, where the freed train waits.
                 for (int last = first + 1; last < Math.min(trips.size(), first + 24); last++) {
                     var trailing = trips.get(last);
                     int end = minute(initial, trailing.arrivalAt());
                     if (!leading.origin().equals(trailing.destination())
                             || end < work.earliestStartMinute() + work.durationMinutes()) continue;
-                    int overlap = Math.min(end, work.latestEndMinute())
-                            - Math.max(start, work.earliestStartMinute());
-                    // Existing free time directly before or after this rotation
-                    // can complete the maintenance interval, so overlap is a
-                    // ranking hint and not a validity condition.
-                    for (Reserve reserve : reserves) if (reserve.city().equals(leading.origin()))
-                        forWork.add(new Proposal(blockedId, first, last, reserve,
-                                overlap, last - first + 1));
+                    int freeTo = last + 1 < trips.size()
+                            ? minute(initial, trips.get(last + 1).departureAt()) - preparationMinutes
+                            : initial.horizonMinutes();
+                    boolean whole = longestFree(initial, work.trainId(),
+                            Math.max(freeFrom, work.earliestStartMinute()),
+                            Math.min(freeTo, work.latestEndMinute())) >= work.durationMinutes();
+                    int from = start - preparationMinutes;
+                    int to = end + preparationMinutes;
+                    for (Reserve reserve : reserves)
+                        if (locationAt(initial, byTrain.getOrDefault(reserve.id(), List.of()), reserve.city(), from)
+                                .equals(leading.origin())
+                                && isIdle(initial, byTrain.getOrDefault(reserve.id(), List.of()), from, to))
+                            forWork.add(new Proposal(blockedId, first, last, reserve, whole, last - first + 1));
                 }
             }
-            forWork.sort(Comparator.comparingInt(Proposal::overlapMinutes).reversed()
+            forWork.sort(Comparator.comparing(Proposal::freesWholeWork).reversed()
                     .thenComparingInt(Proposal::tripCount)
                     .thenComparing(Proposal::first)
                     .thenComparing(p -> p.reserve().id()));
             if (!forWork.isEmpty()) proposals.add(forWork);
         }
+        // Longest works first: they need the most reserve time, so they must not
+        // lose the few reserves of their city to short works taken earlier.
+        proposals.sort(Comparator.comparingInt((List<Proposal> ps) ->
+                blockById.get(ps.get(0).blockedId()).durationMinutes()).reversed());
         Scored best = null;
         int evaluated = 0;
         for (int rank = 0; evaluated < maxEvaluations; rank++) {
@@ -132,10 +146,11 @@ public final class E3RotationCandidateSearch {
                     var projected = projector.project(saved, source, assignment,
                             frozenUntil, preparationMinutes).snapshot();
                     int remaining = E3FeasibilityAudit.blockedBlockIds(projected).size();
+                    int minutes = work.durationMinutes();
                     if (remaining < blockedIds.size() && (best == null || remaining < best.blocked()
-                            || (remaining == best.blocked()
-                            && changes.size() < best.changes().size())))
-                        best = new Scored(Map.copyOf(changes), remaining);
+                            || (remaining == best.blocked() && (minutes > best.workMinutes()
+                            || (minutes == best.workMinutes() && changes.size() < best.changes().size())))))
+                        best = new Scored(Map.copyOf(changes), remaining, minutes);
                 } catch (IllegalArgumentException rejected) {
                     // Ledger, mileage audit or source evidence rejected this rotation.
                 }
@@ -148,6 +163,35 @@ public final class E3RotationCandidateSearch {
         var assignment = ledger.evaluate(saved, best.changes(), frozenUntil, preparationMinutes);
         return result(saved, "IMPROVING_ROTATION_FOUND", evaluated, best.blocked(),
                 best.changes(), assignment, frozenUntil, preparationMinutes, blockedIds.size());
+    }
+
+    // Longest stretch of [from, to) not covered by the train's own fixed commitments.
+    // Source cleanings are skipped: once the train stops running those trips the
+    // projection releases the ones that no longer cover a fourth-to-fifth-trip gap.
+    private static int longestFree(ScenarioSnapshot snapshot, UUID train, int from, int to) {
+        var busy = snapshot.operations().fixedOccupancies().stream()
+                .filter(o -> train.equals(o.trainId()) && o.endMinute() > from && o.startMinute() < to
+                        && !o.source().endsWith("; CLEANING"))
+                .sorted(Comparator.comparingInt(OperationalConstraints.FixedOccupancy::startMinute)).toList();
+        int best = 0, cursor = from;
+        for (var o : busy) {
+            best = Math.max(best, o.startMinute() - cursor);
+            cursor = Math.max(cursor, o.endMinute());
+        }
+        return Math.max(best, to - cursor);
+    }
+
+    // Where a reserve actually is at a minute, after the trips it already took over.
+    private static String locationAt(ScenarioSnapshot snapshot, List<E3TripAssignmentLedger.AssignedTrip> trips,
+                                     String home, int at) {
+        String city = home;
+        for (var trip : trips) if (minute(snapshot, trip.arrivalAt()) <= at) city = trip.destination();
+        return city;
+    }
+
+    private static boolean isIdle(ScenarioSnapshot snapshot, List<E3TripAssignmentLedger.AssignedTrip> trips,
+                                  int from, int to) {
+        return trips.stream().noneMatch(t -> minute(snapshot, t.departureAt()) < to && minute(snapshot, t.arrivalAt()) > from);
     }
 
     private static int minute(ScenarioSnapshot snapshot, OffsetDateTime at) {

@@ -101,5 +101,17 @@ class AuthTest {
         mvc.perform(post("/api/v1/plans/00000000-0000-0000-0000-000000000000/approve", token).session(technologist)
                         .contentType("application/json").content("{\"expectedVersion\":0}"))
                 .andExpect(status().isForbidden());
+
+        // planner proposes, dispatcher decides: neither can take the other's step
+        var planner = login("planner", "planner-demo", token);
+        String proposal = "/api/v1/proposals/00000000-0000-0000-0000-000000000000";
+        mvc.perform(post(proposal + "/approve", token).session(planner).contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/scenarios/00000000-0000-0000-0000-000000000000/proposals", token).session(dispatcher)
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/operations/00000000-0000-0000-0000-000000000000/replacements", token).session(planner)
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
     }
 }

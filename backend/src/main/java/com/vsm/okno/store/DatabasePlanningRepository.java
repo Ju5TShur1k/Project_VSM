@@ -201,6 +201,14 @@ public class DatabasePlanningRepository {
         return jdbc.queryForList("select s.effective_plan_id from vsm.plan_selection s join vsm.plan p on p.id=s.effective_plan_id order by p.approved_at desc nulls last,p.id limit 1",UUID.class)
                 .stream().findFirst().orElse(null);
     }
+    /** Newest plan of any version of this data: after a change the old plan stays visible until recalculated. */
+    public UUID lastPlan(UUID scenarioId) {
+        UUID root=versions.findVersion(scenarioId).map(RequestDto.Version::rootId).orElse(scenarioId);
+        return jdbc.queryForList("""
+                select p.id from vsm.plan p join vsm.scenario_version v on v.scenario_id=p.scenario_id
+                where v.root_id=? order by p.created_at desc,p.id limit 1
+                """,UUID.class,root).stream().findFirst().orElse(null);
+    }
     public RequestDto.Selection selection(UUID scenarioId) {
         var v=versions.findVersion(scenarioId); UUID root=v.map(RequestDto.Version::rootId).orElse(scenarioId);
         var rows=jdbc.query("select latest_draft_id,effective_plan_id from vsm.plan_selection where root_id=?",

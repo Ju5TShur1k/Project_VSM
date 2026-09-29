@@ -1,255 +1,159 @@
-export type Train = {
-  id: string
-  externalId: string
-  status: string
-  mileageKm: number
-  nextObligation: string
-}
+import type { CalendarData } from './calendar/PlanningCalendar'
 
-export type Validation = { code: string; severity: string; message: string; objectId?: string | null; startAt?: string | null; endAt?: string | null }
+export type Role = 'PLANNER' | 'TECHNOLOGIST' | 'DISPATCHER'
 
-export type ValidationReport = {
-  schemaVersion: string
-  status: 'PASS' | 'FAILED' | 'NOT_PERFORMED'
-  scope: string
+// One immutable version of the fleet's source data (trips, trains, rules).
+export type Version = {
+  rootId: string
   scenarioId: string
-  sourceSnapshotId: string | null
+  version: number
+  snapshotId: string
   snapshotHash: string
-  resultHash: string
-  policy: string
-  solverStatus: string
-  planVersion: number
-  checkedAt: string
-  ruleVersion: string | null
-  ruleConfirmation: string | null
-  requiredServiceCount: number | null
-  pendingMilestones: { trainId: string; cycleCode: string; nominalKm: number; remainingKm: number }[]
-  findings: Validation[]
+  createdBy: string
+  createdAt: string
 }
 
-export type PlanMetrics = {
-  scope: string
-  scheduledTripCount: number
-  conflictingTripCount: number
-  requiredServiceCount: number
-  placedServiceCount: number
-  missingServiceCount: number
-  trainServiceMinutes: number
-  makespanMinutes: number
-  peakConcurrentService: number
-  resourceLoads: { resourceId: string; busyMinutes: number; horizonSharePercent: number }[]
-}
-
-export type PlanEvent = {
-  id: string
-  trainId: string
-  kind: string
-  startAt: string
-  endAt: string
-  resourceIds: string[]
+// Saved source payload of one data version (only the parts the UI reads).
+export type SourcePayload = {
+  scenario: { horizon_start: string; horizon_end: string }
+  trains: { id: string; external_id: string; status: string; location: string }[]
+  fixedTrips: { id: string; train_id: string; label: string; origin: string; destination: string; departure_at: string; arrival_at: string }[]
 }
 
 export type Plan = {
   id: string
   scenarioId: string
-  version: number
   status: string
-  approvedBy: string | null
-  events: PlanEvent[]
-  validations: Validation[]
   snapshotHash: string
   validationStatus: 'PASS' | 'FAILED' | 'NOT_PERFORMED'
-  validationReport?: ValidationReport | null
-  metrics?: PlanMetrics | null
 }
 
-export type DemoSource = {
-  scenarioId: string
-  snapshotId: string
+// Result of building the 14-day maintenance plan for the whole fleet.
+export type FullDraft = {
+  planId: string | null
   snapshotHash: string
-  provenance: string
+  searchStatus: string
+  moves: number
+  tripCount: number
+  changedTripCount: number
+  requiredCleaningCount: number
+  placedBlockCount: number
+  modelSolverStatus: string
+  structuralStatus: 'PASS' | 'FAILED' | 'NOT_PERFORMED'
+  d2Status: string
+  diagnostics: { code: string; message: string }[]
+  reserve: { mobilizedTrainCount: number; cities: { name: string; sourceTarget: number; remaining: number; deficit: number }[] }
 }
 
-export type CaseDataset = {
-  source: DemoSource
-  dataset: 'FULL43' | 'E2_6' | 'BLOCKED6'
-  trainCount: number
-  tripCount: number
-  planningSupported: boolean
-  warnings: string[]
+export type ProposalPayload =
+  | { kind: 'TRIP_CHANGE'; trainId: string; tripId: string; newDepartureAt: string; newArrivalAt: string; reason: string; source: string }
+  | { kind: 'TRAIN_FAILURE'; trainId: string; tripId: string; occurredAt: string; expectedRepairAt: string | null; description: string; operationsId: string }
+
+export type Proposal = {
+  id: string
+  number: number
+  scenarioId: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  payload: ProposalPayload
+  comment: string
+  createdBy: string
+  createdAt: string
+  reviewedBy: string | null
+  reviewedAt: string | null
+  reviewComment: string | null
+  applied: { newSnapshotHash: string; snapshotId: string; sourceVersion: number } | null
 }
 
 export type RecoveryBoard = {
-  id: string; version: number; stateHash: string; scenarioId: string; sourceSnapshotId: string; snapshotHash: string
-  scope: string; provenance: string; windowStart: string; windowEnd: string; asOf: string
-  policy: { version: string; preparationMinutes: number; targetReservePerCity: number; cleaningEveryTrips: number; source: string }
-  trainCount: number; availableTrainCount: number; unavailableTrainCount: number; uncoveredTripCount: number; incompletePairCount: number
+  id: string; version: number; scenarioId: string; asOf: string; windowStart: string; windowEnd: string
   reserve: { location: string; available: number; target: number; deficit: number }[]
-  trains: { id: string; externalId: string; status: string; location: string; mileageKm: number; tripsSinceCleaning: number | null; readinessEvidence: string }[]
-  trips: { id: string; label: string; pairKey: string; plannedTrainId: string; plannedTrain: string; effectiveTrainId: string; effectiveTrain: string; origin: string; destination: string; departureAt: string; arrivalAt: string; coverage: string }[]
-  faults: { id: string; trainId: string; train: string; trip: string; occurredAt: string; expectedRepairAt: string | null; description: string; status: string; affectedTripIds: string[]; replacementTrain: string | null; candidates: { trainId: string; externalId: string; location: string; eligible: boolean; reasons: string[] }[]; acceptedAt: string | null }[]
-  messages: string[]
-}
-
-export type Role = 'PLANNER' | 'TECHNOLOGIST' | 'DISPATCHER'
-
-export type Incident = {
-  id: string
-  train: string
-  kind: 'TRIP_CHANGE' | 'URGENT_MAINTENANCE' | 'EQUIPMENT_DOWN'
-  description: string
-  reportedBy: string
-  reportedAt: string
-}
-
-export type Job = {
-  jobId: string
-  status: string
-  solverStatus: string | null
-  planId: string | null
-  error: string | null
+  trains: { id: string; externalId: string; status: string; location: string }[]
+  trips: { id: string; label: string; effectiveTrainId: string; effectiveTrain: string; origin: string; destination: string; departureAt: string; arrivalAt: string; coverage: string }[]
+  faults: { id: string; trainId: string; train: string; trip: string; occurredAt: string; description: string; status: string; affectedTripIds: string[]; replacementTrain: string | null; candidates: { trainId: string; externalId: string; location: string; eligible: boolean; reasons: string[] }[] }[]
+  uncoveredTripCount: number
 }
 
 export class Unauthorized extends Error {
-  constructor() {
-    super('Сессия истекла, войдите заново')
-  }
+  constructor() { super('Сессия истекла, войдите заново') }
 }
 
-// A concurrent plan or operational decision changed the version we loaded.
+// Someone else changed the same data or decision first.
 export class Conflict extends Error {
-  constructor() {
-    super('Данные уже изменены — загружена актуальная версия, проверьте решение и повторите действие')
-  }
+  constructor() { super('Данные уже изменены другим пользователем — обновлено, повторите действие') }
 }
 
 async function json<T>(res: Response): Promise<T> {
   if (res.status === 401) throw new Unauthorized()
   if (res.status === 409) throw new Conflict()
-  if (!res.ok) throw new Error(await errorMessage(res))
+  if (!res.ok) {
+    const text = await res.text()
+    let message = text
+    try { message = JSON.parse(text).message ?? text } catch { /* plain text */ }
+    throw new Error(message || `${res.status}`)
+  }
   return res.json()
 }
 
-// API errors are {code,message,...}; fall back to the raw text for anything else.
-async function errorMessage(res: Response) {
-  const text = await res.text()
-  try {
-    return JSON.parse(text).message ?? text
-  } catch {
-    return `${res.status} ${text}`
-  }
-}
-
-// The API sets an XSRF-TOKEN cookie on its first response (even the 401 of
-// /auth/me); state-changing requests must echo it back in this header.
+// State-changing requests echo the XSRF-TOKEN cookie back in this header.
 const xsrf = () => document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/)?.[1] ?? ''
-
-const JSON_HEADERS = { 'Content-Type': 'application/json' }
-
-const post = (url: string, init: RequestInit = {}) =>
-  fetch(url, { method: 'POST', ...init, headers: { 'X-XSRF-TOKEN': xsrf(), ...init.headers } })
+const post = (url: string, body?: unknown, contentType = 'application/json') =>
+  fetch(url, {
+    method: 'POST',
+    headers: { 'X-XSRF-TOKEN': xsrf(), ...(body === undefined ? {} : { 'Content-Type': contentType }) },
+    body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body)
+  })
+const get = <T,>(url: string) => fetch(url).then(json<T>)
+export const newId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 
 export const api = {
-  me: () => fetch('/api/v1/auth/me').then(json<{ username: string; role: Role }>),
-
-  currentPlan: () => fetch('/api/v1/current-plan').then(json<{ planId: string | null }>),
-
-  incidents: () => fetch('/api/v1/incidents').then(json<Incident[]>),
-
-  reportIncident: (train: string, kind: Incident['kind'], description: string) =>
-    post('/api/v1/incidents', {
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ train, kind, description })
-    }).then(json<Incident>),
-
+  me: () => get<{ username: string; role: Role }>('/api/v1/auth/me'),
   login: async (username: string, password: string) => {
-    const res = await post('/api/v1/auth/login', { body: new URLSearchParams({ username, password }) })
+    const res = await fetch('/api/v1/auth/login', { method: 'POST', headers: { 'X-XSRF-TOKEN': xsrf() }, body: new URLSearchParams({ username, password }) })
     if (res.status === 401) throw new Error('Неверный логин или пароль')
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
   },
-
   logout: () => post('/api/v1/auth/logout'),
 
-  importScenario: () =>
-    post('/api/v1/scenarios/import', {
-      headers: JSON_HEADERS,
-      body: '{}'
-    }).then(json<{ scenarioId: string; warnings: string[]; provenance: string }>),
+  // Registers the 43-train fleet as source data and opens today's operations board.
+  loadFleet: async () => {
+    const loaded = await post('/api/v1/demo/case-source?dataset=FULL43').then(json<{ source: { scenarioId: string } }>)
+    const version = await get<Version>(`/api/v1/scenarios/${loaded.source.scenarioId}/version`)
+    const board = await post(`/api/v1/scenarios/${loaded.source.scenarioId}/operations`).then(json<RecoveryBoard>)
+    return { rootId: version.rootId, operationsId: board.id }
+  },
+  head: (rootId: string) => get<Version>(`/api/v1/scenarios/${rootId}/version`),
+  // Newest plan of this data across versions (the server clears "latest draft" on every data change).
+  lastPlan: (rootId: string) => get<{ planId: string | null }>(`/api/v1/scenarios/${rootId}/last-plan`),
+  source: (scenarioId: string) => get<SourcePayload>(`/api/v1/scenarios/${scenarioId}/source`),
+  uploadSchedule: (rootId: string, csv: string) =>
+    post(`/api/v1/scenarios/${rootId}/schedule`, csv, 'text/csv; charset=utf-8')
+      .then(json<{ changed: number; added: number; unchanged: number }>),
 
-  importDemoSource: () => post('/api/v1/demo/source').then(json<DemoSource>),
-  importCaseDataset: (dataset: CaseDataset['dataset']) =>
-    post(`/api/v1/demo/case-source?dataset=${dataset}`).then(json<CaseDataset>),
+  buildPlan: (snapshotId: string, frozenUntil: string) =>
+    post(`/api/v1/source-snapshots/${snapshotId}/e3-full-draft`, {
+      frozenUntil, preparationMinutes: 30, maxMoves: 20, maxEvaluationsPerMove: 32, seed: 1, timeLimitSec: 60
+    }).then(json<FullDraft>),
+  plan: (id: string) => get<Plan>(`/api/v1/plans/${id}`),
+  calendar: (id: string) => get<CalendarData>(`/api/v1/plans/${id}/calendar`),
 
-  createRecovery: (scenarioId: string) => post(`/api/v1/scenarios/${scenarioId}/operations`).then(json<RecoveryBoard>),
-  getRecovery: (id: string) => fetch(`/api/v1/operations/${id}`).then(json<RecoveryBoard>),
-  recoveryCommand: (board: RecoveryBoard, command: 'failures' | 'replacements' | 'releases' | 'clock', body: Record<string, unknown>) =>
-    post(`/api/v1/operations/${board.id}/${command}`, { headers: JSON_HEADERS, body: JSON.stringify({ expectedVersion: board.version, ...body }) }).then(json<RecoveryBoard>),
+  proposals: (rootId?: string) => get<Proposal[]>(`/api/v1/proposals${rootId ? `?scenarioId=${rootId}` : ''}`),
+  propose: (rootId: string, payload: ProposalPayload, comment: string, clientRequestId: string) =>
+    post(`/api/v1/scenarios/${rootId}/proposals`, { clientRequestId, expectedSnapshotHash: '', payload, comment }).then(json<Proposal>),
+  approveProposal: (id: string, comment: string) => post(`/api/v1/proposals/${id}/approve`, { comment }).then(json<Proposal>),
+  rejectProposal: (id: string, comment: string) => post(`/api/v1/proposals/${id}/reject`, { comment }).then(json<Proposal>),
 
-  changeR1Arrival: (scenarioId: string, arrivalMinute: number) =>
-    post(`/api/v1/demo/scenarios/${scenarioId}/r1-arrival`, {
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ arrivalMinute })
-    }).then(json<DemoSource>),
-
-  getTrains: (scenarioId: string) =>
-    fetch(`/api/v1/scenarios/${scenarioId}/trains`).then(json<Train[]>),
-
-  getScenario: (id: string) => fetch(`/api/v1/scenarios/${id}`).then(json<{ provenance: string }>),
-
-  // Injects a failure as a NEW scenario version; the old one stays untouched.
-  addEvent: (scenarioId: string, kind: string, description: string) =>
-    post(`/api/v1/scenarios/${scenarioId}/events`, {
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ kind, description })
-    }).then(json<{ newScenarioId: string }>),
-
-  // A fresh idempotencyKey per click = a new job; retries of the same click would reuse it.
-  startJob: (scenarioId: string) =>
-    post('/api/v1/planning-jobs', {
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
-        scenarioId,
-        policy: 'BLOCKS_CP_SAT',
-        seed: 42,
-        timeLimitSec: 30,
-        idempotencyKey: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}` // randomUUID needs https/localhost
-      })
-    }).then(json<Job>),
-
-  getJob: (id: string) => fetch(`/api/v1/planning-jobs/${id}`).then(json<Job>),
-
-  getPlan: (id: string) => fetch(`/api/v1/plans/${id}`).then(json<Plan>),
-
-  getCalendar: (id: string) => fetch(`/api/v1/plans/${id}/calendar`).then(json<import('./calendar/PlanningCalendar').CalendarData>),
-
-  // The approver is taken from the session server-side, so no actorId is sent.
-  approve: (planId: string, expectedVersion: number, comment: string) =>
-    post(`/api/v1/plans/${planId}/approve`, {
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ expectedVersion, comment })
-    }).then(json<Plan>)
+  openBoard: (scenarioId: string) => post(`/api/v1/scenarios/${scenarioId}/operations`).then(json<RecoveryBoard>),
+  board: (id: string) => get<RecoveryBoard>(`/api/v1/operations/${id}`),
+  boardCommand: (board: RecoveryBoard, command: 'failures' | 'replacements', body: Record<string, unknown>) =>
+    post(`/api/v1/operations/${board.id}/${command}`, { expectedVersion: board.version, ...body }).then(json<RecoveryBoard>)
 }
 
-// Status codes from the API, as the user should read them.
+// Codes from the API as the user should read them.
 const RU: Record<string, string> = {
-  OPTIMAL: 'Оптимальный план',
-  FEASIBLE: 'Допустимый план',
-  INFEASIBLE: 'Нет допустимого плана',
-  UNKNOWN: 'Решение не найдено',
-  MODEL_INVALID: 'Ошибка модели',
-  PASS: 'пройдена',
-  FAILED: 'не пройдена',
-  NOT_PERFORMED: 'не выполнена',
-  DRAFT: 'Черновик',
-  APPROVED: 'Согласован',
-  AVAILABLE: 'Доступен',
-  LINE: 'На линии',
-  RESERVE: 'Горячий резерв',
-  MAINTENANCE: 'Плановое ТО',
-  HOT_RESERVE: 'Горячий резерв',
-  READY_IDLE: 'Готов, простаивает',
-  TRIP_CHANGE: 'Изменение рейса',
-  URGENT_MAINTENANCE: 'Неотложное ТО',
-  EQUIPMENT_DOWN: 'Отказ оборудования'
+  OPTIMAL: 'оптимальный', FEASIBLE: 'допустимый', INFEASIBLE: 'нет решения', UNKNOWN: 'не найдено', NOT_RUN: 'не запускался',
+  PASS: 'пройдена', FAILED: 'не пройдена', NOT_PERFORMED: 'не выполнена',
+  PENDING: 'Ждёт диспетчера', APPROVED: 'Согласована', REJECTED: 'Отклонена',
+  TRIP_CHANGE: 'Изменение рейса', TRAIN_FAILURE: 'Отказ состава',
+  MOSCOW: 'Москва', SPB_DEPOT: 'Санкт-Петербург', LINE: 'На линии', RESERVE: 'Резерв', MAINTENANCE: 'В депо', AVAILABLE: 'На линии'
 }
 export const ru = (code: string | null | undefined) => (code ? RU[code] ?? code : '—')

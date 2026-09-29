@@ -18,7 +18,7 @@ import tools.jackson.databind.JsonNode;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("database") @WithMockUser(username="planner",roles="PLANNER")
+@SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("database") @WithMockUser(username="planner",roles={"PLANNER","DISPATCHER"})
 @EnabledIfEnvironmentVariable(named="D1_TEST_DB_URL",matches="jdbc:postgresql:.*")
 class RecoveryIntegrationTest {
     @DynamicPropertySource static void database(DynamicPropertyRegistry r) {

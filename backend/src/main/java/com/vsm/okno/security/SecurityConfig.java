@@ -50,6 +50,12 @@ public class SecurityConfig {
                         // Only the planner signs a plan off.
                         .requestMatchers(HttpMethod.POST, "/api/v1/plans/*/approve").hasRole("PLANNER")
                         .requestMatchers(HttpMethod.POST, "/api/v1/source-snapshots/*/e3-full-draft").hasRole("PLANNER")
+                        // Planner proposes a change; dispatcher approves/rejects it and decides replacements.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/scenarios/*/proposals", "/api/v1/scenarios/*/schedule").hasRole("PLANNER")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/proposals").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/proposals/*/approve", "/api/v1/proposals/*/reject").hasRole("DISPATCHER")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/operations/*").hasAnyRole("PLANNER", "DISPATCHER")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/operations/*/**").hasRole("DISPATCHER")
                         // Loading data and calculating: planner and technologist.
                         .anyRequest().hasAnyRole("PLANNER", "TECHNOLOGIST"))
                 .csrf(c -> c.spa())

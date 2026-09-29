@@ -57,3 +57,8 @@ export function Logo() {
     </svg>
   )
 }
+
+// Small "i" with a hover/focus tooltip: short help instead of paragraphs of text.
+export function Info({ text }: { text: string }) {
+  return <span className="info" tabIndex={0} role="note" aria-label={text} data-tip={text}>i</span>
+}

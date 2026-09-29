@@ -38,6 +38,11 @@ public class UiRequestService {
     }
 
     @Transactional public Submitted submit(UUID scenarioId, NewRequest command, String actor) {
+        return submit(scenarioId, command, actor, autoCalculate);
+    }
+
+    /** calculate=false: the new source version is stored, the planner starts the recalculation. */
+    @Transactional public Submitted submit(UUID scenarioId, NewRequest command, String actor, boolean calculate) {
         check(command!=null,"request","is required");
         bounded(command.clientRequestId(),"clientRequestId",160);
         check(command.expectedSnapshotHash()!=null && command.expectedSnapshotHash().matches("[a-f0-9]{64}"),
@@ -82,7 +87,7 @@ public class UiRequestService {
         var receipt=versions.submit(new RequestDto.Command(base.scenarioId(),base.version(),key,reason,source,change),actor,false);
         jdbc.update("insert into vsm.request_client_metadata(request_id,client_request_id,base_snapshot_hash,body) values (?,?,?,?::jsonb)",
                 receipt.id(),command.clientRequestId(),command.expectedSnapshotHash(),body);
-        if (autoCalculate) {
+        if (calculate) {
             var v=receipt.version();
             planning.scenario(v.scenarioId());
             planning.enqueue(new DatabasePlanningRepository.Parameters(v.scenarioId(),v.snapshotId(),v.snapshotHash(),"BLOCKS_CP_SAT",1,30,0),
