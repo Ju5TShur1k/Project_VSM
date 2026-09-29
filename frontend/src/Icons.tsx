@@ -1,3 +1,6 @@
+import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+
 // Inline SVG, no icon library: a handful of stroke icons in one visual weight.
 const PATHS = {
   // front view of a train
@@ -58,7 +61,53 @@ export function Logo() {
   )
 }
 
-// Small "i" with a hover/focus tooltip: short help instead of paragraphs of text.
+// Render help on the document layer so cards and scroll containers cannot clip it.
 export function Info({ text }: { text: string }) {
-  return <span className="info" tabIndex={0} role="note" aria-label={text} data-tip={text}>i</span>
+  const trigger = useRef<HTMLButtonElement>(null)
+  const tip = useRef<HTMLSpanElement>(null)
+  const id = useId()
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ left: 12, top: 12 })
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const anchor = trigger.current?.getBoundingClientRect()
+      const bubble = tip.current?.getBoundingClientRect()
+      if (!anchor || !bubble) return
+      const spaceBelow = window.innerHeight - anchor.bottom
+      const above = spaceBelow < bubble.height + 12 && anchor.top > spaceBelow
+      setPosition({
+        left: Math.min(Math.max(12, anchor.left + anchor.width / 2 - bubble.width / 2),
+          Math.max(12, window.innerWidth - bubble.width - 12)),
+        top: above ? Math.max(12, anchor.top - bubble.height - 8)
+          : Math.max(12, Math.min(anchor.bottom + 8, window.innerHeight - bubble.height - 12))
+      })
+    }
+    place()
+    const close = (event: PointerEvent) => {
+      if (!trigger.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', escape)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [open])
+
+  return <>
+    <button ref={trigger} type="button" className="info" aria-label="Подсказка"
+      aria-describedby={open ? id : undefined} aria-expanded={open}
+      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+      onClick={() => setOpen(true)}>i</button>
+    {open && createPortal(<span ref={tip} id={id} role="tooltip" className="info-popover"
+      style={{ left: position.left, top: position.top }}>{text}</span>, document.body)}
+  </>
 }

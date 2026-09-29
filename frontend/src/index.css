@@ -208,19 +208,20 @@ tr.current td { background: color-mix(in srgb, var(--brand) 6%, transparent); }
 .badge.VALIDATED { color: var(--ok); }
 .badge.REJECTED { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
 
-/* значок «i»: подсказка по наведению или фокусу */
-.info {
-  position: relative; display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; margin-left: 8px; border: 1px solid var(--muted); border-radius: 50%;
-  color: var(--muted); font: italic 700 11px/1 Georgia, serif; text-transform: none; letter-spacing: 0;
-  vertical-align: 2px; cursor: help;
+/* Подсказка живёт в body и не обрезается карточками с overflow: hidden. */
+button.info, button.info:hover:not(:disabled) {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-left: 8px; padding: 0;
+  border: 1px solid var(--muted); border-radius: 50%; background: transparent;
+  color: var(--muted); font: italic 700 11px/1 Georgia, serif;
+  text-transform: none; letter-spacing: 0; vertical-align: 2px; cursor: help;
 }
-.info:hover, .info:focus { color: var(--brand); border-color: var(--brand); outline: none; }
-.info:hover::after, .info:focus::after {
-  content: attr(data-tip); position: absolute; left: 50%; top: 22px; transform: translateX(-50%); z-index: 20;
-  width: max-content; max-width: 320px; padding: 10px 12px; border-radius: 2px;
-  background: var(--text); color: #fff; font: 400 13px/1.45 system-ui, sans-serif; text-transform: none; letter-spacing: 0;
-  white-space: normal; box-shadow: 0 4px 16px rgba(0,0,0,.18);
+button.info:hover:not(:disabled), button.info:focus-visible { color: var(--brand); border-color: var(--brand); }
+.info-popover {
+  position: fixed; z-index: 10000; width: max-content; max-width: min(300px, calc(100vw - 24px));
+  padding: 10px 12px; border-radius: 6px; background: var(--text); color: #fff;
+  font: 400 13px/1.45 system-ui, sans-serif; text-transform: none; letter-spacing: 0;
+  white-space: normal; box-shadow: 0 8px 24px rgba(0,0,0,.22); pointer-events: none;
 }
 h2 .info { vertical-align: 3px; }
 

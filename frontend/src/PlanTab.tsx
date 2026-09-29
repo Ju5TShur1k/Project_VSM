@@ -12,8 +12,7 @@ async function readCsv(file: File) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { return new TextDecoder('windows-1251').decode(bytes) }
 }
 
-const CSV_HELP = 'CSV с заголовком: рейс;состав;отправление;прибытие. Для нового рейса ещё откуда;куда;км. ' +
-  'Время — «2031-07-01 06:05» по Москве. Изменённые и новые рейсы сохраняются одной новой версией данных, прежняя остаётся в истории.'
+const CSV_HELP = 'В CSV укажите рейс, состав и время отправления и прибытия по Москве. Для нового рейса добавьте города и расстояние.'
 
 export default function PlanTab({ ws, setWs, rootId, head, planId, calendar, proposals, onRequests }: Ctx & { onRequests: () => void }) {
   const qc = useQueryClient()
@@ -51,7 +50,7 @@ export default function PlanTab({ ws, setWs, rootId, head, planId, calendar, pro
 
   if (!rootId) return (
     <section className="card pad">
-      <h2><Icon name="database" />Парк<Info text="Модельный парк кейса: 43 состава ЭВС360 (34 на линии парами, 5 в депо, 4 в резерве), 1428 рейсов Москва — Санкт-Петербург на 14 суток. Нормативы ТО IS100–IS700 — из кейса." /></h2>
+      <h2><Icon name="database" />Парк<Info text="Демонстрационный парк: 43 состава и расписание на 14 дней." /></h2>
       <button onClick={() => load.mutate()} disabled={load.isPending}>{load.isPending ? 'Загрузка…' : 'Загрузить парк: 43 состава'}</button>
       {load.isError && <p className="error">{load.error.message}</p>}
     </section>
@@ -68,7 +67,7 @@ export default function PlanTab({ ws, setWs, rootId, head, planId, calendar, pro
     <>
       <section className="card pad">
         <div className="bar">
-          <h2><Icon name="database" />Исходные данные<Info text="Каждое изменение (заявка, загрузка CSV) создаёт новую неизменяемую версию данных с контрольной суммой. План всегда строится по конкретной версии." /></h2>
+          <h2><Icon name="database" />Исходные данные<Info text="Здесь видно, по какой версии расписания построен план." /></h2>
           <div className="actions">
             <label className="btn-outline">Загрузить расписание CSV
               <input type="file" accept=".csv,text/csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = '' }} />
@@ -87,7 +86,7 @@ export default function PlanTab({ ws, setWs, rootId, head, planId, calendar, pro
 
       <section className="card pad">
         <div className="bar">
-          <h2><Icon name="plan" />План ТО на 14 суток<Info text="CP-SAT размещает все обязательные ТО по пробегу и уборки после каждых 4 рейсов. Если длительному ТО не хватает окна между рейсами, рейсы временно передаются резервному составу того же города. Рейсы не сдвигаются и не теряются." /></h2>
+          <h2><Icon name="plan" />План ТО на 14 суток<Info text="Система подбирает время ТО и уборки. При необходимости передаёт рейсы резервному составу." /></h2>
           <button onClick={() => build.mutate()} disabled={!head || !horizonStart || build.isPending}>
             {build.isPending ? `Расчёт… ${Math.round((Date.now() - (startedAt ?? Date.now())) / 1000)} с` : calendar ? 'Пересчитать' : 'Построить план'}
           </button>
@@ -110,8 +109,8 @@ export default function PlanTab({ ws, setWs, rootId, head, planId, calendar, pro
             <div><strong>{cleanings}</strong><span>уборок</span></div>
             {draft && <div><strong>{draft.changedTripCount}</strong><span>рейсов передано резерву</span></div>}
             {spb && <div className={spb.deficit ? 'warn' : ''}><strong>{spb.remaining}/{spb.sourceTarget}</strong><span>резерв СПб</span></div>}
-            {draft && <div className="txt"><strong>{ru(draft.modelSolverStatus)}</strong><span>решение CP-SAT<Info text="Оптимальный — решатель доказал лучшее размещение для найденного назначения рейсов." /></span></div>}
-            <div className="txt"><strong>{ru(draft?.structuralStatus ?? 'PASS')}</strong><span>проверка интервалов<Info text="Независимая проверка: нет пересечений рейсов, ТО, уборок и путей депо. Полная проверка D2 для 43 составов в разработке, поэтому план остаётся черновиком." /></span></div>
+            {draft && <div className="txt"><strong>{ru(draft.modelSolverStatus)}</strong><span>результат расчёта<Info text="Показывает, удалось ли составить план и найти лучшее размещение работ." /></span></div>}
+            <div className="txt"><strong>{ru(draft?.structuralStatus ?? 'PASS')}</strong><span>проверка интервалов<Info text="Проверено, что рейсы и работы не пересекаются. До полной проверки план остаётся черновиком." /></span></div>
           </div>
         )}
         {calendar && <p className="muted">Построен по версии данных <code>{calendar.snapshotHash.slice(0, 12)}</code>. Календарь и поиск — во вкладке «Парк».</p>}
@@ -132,7 +131,7 @@ function Changes({ beforeId, afterId }: { beforeId: string; afterId: string }) {
   return (
     <section className="card">
       <h2 className="pad-h"><Icon name="route" />Изменения после пересчёта · {changes.length}
-        <Info text="Сравнение с предыдущим планом: только сдвинутые, переданные другому составу, добавленные и снятые рейсы и работы." /></h2>
+        <Info text="Здесь показано, что изменилось после пересчёта." /></h2>
       {changes.length === 0 ? <p className="muted empty">План не изменился.</p> : (
         <div className="table-scroll">
           <table>

@@ -20,8 +20,8 @@ export default function Proposals({ rootId, operationsId, head, calendar, propos
       <section className="card">
         <h2 className="pad-h"><Icon name="bell" />Заявки
           <Info text={role === 'PLANNER'
-            ? 'Заявка ничего не меняет, пока её не согласует диспетчер. Согласованное изменение рейса создаёт новую версию данных — после этого пересчитайте план.'
-            : 'Согласуйте или отклоните заявку планировщика. Для отказа состава выберите замену из резерва: система показывает, кто подходит и почему.'} />
+            ? 'После согласования диспетчером пересчитайте план с новыми данными.'
+            : 'Примите или отклоните заявку. При отказе состава выберите замену из резерва.'} />
         </h2>
         {proposals.length === 0 ? <p className="muted empty">Заявок нет.</p> : (
           <div className="table-scroll">
@@ -130,7 +130,7 @@ function NewProposal({ rootId, operationsId, source }: { rootId: string; operati
 
   return (
     <section className="card pad">
-      <h2><Icon name="alert" />Новая заявка<Info text="Изменение рейса — новое время отправления и прибытия. Отказ состава — поломка перед рейсом: диспетчер снимает состав и назначает замену из резерва." /></h2>
+      <h2><Icon name="alert" />Новая заявка<Info text="Укажите новое время рейса или сообщите об отказе состава." /></h2>
       <div className="seg" role="tablist">
         {(['TRIP_CHANGE', 'TRAIN_FAILURE'] as const).map((k) => (
           <button key={k} role="tab" aria-selected={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{ru(k)}</button>
@@ -218,7 +218,7 @@ function Review({ p, src, onDone }: { p: Proposal; src?: SourcePayload; onDone: 
           </div>
           {!fault ? (
             <p><button onClick={() => register.mutate()} disabled={register.isPending}>Принять отказ и подобрать замену</button>
-              <Info text="Состав снимается со всех оставшихся рейсов суток; система проверяет кандидатов из резерва по городу, уборке, пробегу и подготовке." /></p>
+              <Info text="Состав снимается с оставшихся рейсов. Затем выберите подходящую замену." /></p>
           ) : (
             <div className="table-scroll">
               <table>

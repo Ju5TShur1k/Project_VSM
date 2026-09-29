@@ -49,7 +49,7 @@ export default function Fleet({ calendar: cal, loading, detailed }: { calendar?:
   return (
     <>
       <section className="card pad">
-        <h2><Icon name="train" />Парк<Info text="Все составы, рейсы, ТО и уборки последнего построенного плана. Поиск сужает таблицы и календарь; клик по составу открывает его карточку." /></h2>
+        <h2><Icon name="train" />Парк<Info text="Найдите состав, его рейсы и ближайшее ТО." /></h2>
         {!cal && <p className="muted">{loading ? 'Загрузка плана…' : 'План ещё не построен.'}</p>}
         <div className="row filters">
           <label className="grow">Поиск
