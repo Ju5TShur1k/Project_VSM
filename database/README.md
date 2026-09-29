@@ -8,8 +8,9 @@
 
 Добавлены [наборы по кейсу](CASE_DATASET.md): 43 состава/1428 рейсов для источников E3 и 6 составов/252 рейса для проверяемого расчёта E2 с нормативными длительностями. Независимая runtime-проверка E2 подключена; отчёт и оставшиеся зависимости описаны в [D2_VALIDATION.md](../docs/D2_VALIDATION.md). Проекция E3 и диагностика FULL43 доступны, но полный расчёт требует переназначения рейсов и полной независимой D2-проверки; см. [E3_HANDOFF.md](../docs/E3_HANDOFF.md).
 
-- Профиль Spring `database`, PostgreSQL JDBC, Flyway, миграции V1–V7.
-- 32 таблицы в схеме `vsm`: исходные факты E2/E3, оперативные решения и Task1.
+- Профиль Spring `database`, PostgreSQL JDBC, Flyway, миграции V1–V8.
+- 35 таблиц в схеме `vsm`: исходные факты E2/E3, оперативные решения и Task1.
+- Явные факты выпуска и нормативы срочных работ в новых версиях: [TASK1_E3_SOURCE_CONTRACT.md](../docs/TASK1_E3_SOURCE_CONTRACT.md).
 - Java `SourceSnapshotRepository`: сохранить согласованный снимок исходных данных и прочитать его по ID.
 - Неизменяемые снимки, канонический текст и SHA-256; повторное сохранение одинакового содержимого возвращает существующий снимок.
 - Синтетические примеры, SQL-проверки ограничений, интеграционные тесты профиля.
@@ -25,7 +26,7 @@ docker compose -f docker-compose.yml -f docker-compose.database.yml ps
 docker compose -f docker-compose.yml -f docker-compose.database.yml logs api
 ```
 
-Flyway добавляет V1–V7 без удаления существующих данных. В pgAdmin: host `localhost`, port `5433`, database/user/password `okno` (локальная демонстрация).
+Flyway добавляет V1–V8 без удаления существующих данных. В pgAdmin: host `localhost`, port `5433`, database/user/password `okno` (локальная демонстрация).
 Требуется современный Docker Compose с поддержкой `!override` (на этом компьютере установлен v5.5.1).
 Существующий volume PostgreSQL не удалять. Если он ранее создавался с другими реквизитами, переменные Compose не поменяют пароль существующей БД автоматически.
 

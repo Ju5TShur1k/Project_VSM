@@ -36,7 +36,7 @@ public final class SourceSnapshotE2Adapter {
         require("d1-source-1.0".equals(text(root, "schemaVersion")), "payload version mismatch");
         require("pg-jsonb-text-v1".equals(text(root, "canonicalization")), "payload canonicalization mismatch");
         require(stored.scenarioId().equals(uuid(root, "scenarioId")), "payload scenario mismatch");
-        for (String unsupported : List.of("urgentWorkRequirements", "resourceOutages")) {
+        for (String unsupported : List.of("urgentWorkRequirements", "resourceOutages", "trainReleases", "urgentWorkRules")) {
             JsonNode facts = root.path(unsupported);
             require(facts.isMissingNode() || (facts.isArray() && facts.isEmpty()),
                     unsupported + " requires a capable planning adapter; refusing to omit it");

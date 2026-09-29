@@ -732,6 +732,36 @@ paths:
 
         '403': { description: Role or CSRF check failed }
 
+  /scenarios/{id}/source-fact-versions:
+    post:
+      summary: Version explicit train releases or the urgent work catalog
+      description: TECHNOLOGIST only. change.kind is TRAIN_RELEASE or URGENT_RULE_CHANGE. Uses the exact source version in the path and existing expectedVersion/idempotencyKey rules. No automatic calculation or approval; older adapters reject the new facts explicitly.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangeCommand' }
+      responses:
+        '201':
+          description: Saved new source version or exact replay, including request and snapshot/hash
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangeReceipt' }
+        '403': { description: Role or CSRF check failed }
+        '409': { description: VERSION_CONFLICT or IDEMPOTENCY_KEY_REUSED }
+        '422': { description: Invalid facts, resources, acceptance evidence or request shape }
+  /scenarios/{id}/urgent-work-rules:
+    get:
+      summary: Read the urgent work catalog from the exact immutable source version
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: Catalog for this version, empty when no norms are supplied
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/UrgentWorkSourceRule' } }
+        '404': { description: Source version not found }
   /scenarios/{id}/rule-versions:
     post:
       summary: Persist request, changed source version and canonical snapshot atomically
@@ -1422,6 +1452,8 @@ components:
             - { $ref: '#/components/schemas/UrgentMaintenance' }
             - { $ref: '#/components/schemas/ResourceOutage' }
             - { $ref: '#/components/schemas/RuleChange' }
+            - { $ref: '#/components/schemas/TrainReleaseChange' }
+            - { $ref: '#/components/schemas/UrgentRuleChange' }
     TripChange:
       type: object
       additionalProperties: false
@@ -1515,6 +1547,52 @@ components:
               trainId: { type: string, format: uuid }
               cycleCode: { type: string }
               creditedNominalKm: { type: integer, minimum: 0 }
+    TrainReleaseChange:
+      type: object
+      additionalProperties: false
+      required: [kind, trainId, availableFrom, location, basis]
+      properties:
+        kind: { type: string, const: TRAIN_RELEASE }
+        trainId: { type: string, format: uuid }
+        frozenWorkId: { type: string, format: uuid, nullable: true }
+        availableFrom: { type: string, format: date-time }
+        location: { type: string, minLength: 1 }
+        basis: { type: string, enum: [ACCEPTED, FORECAST, DEMO_ASSUMPTION] }
+        acceptedAt: { type: string, format: date-time, nullable: true, description: Required for ACCEPTED, cannot be in the future; forbidden for other bases }
+        acceptanceDocument: { type: string, nullable: true, description: Required for ACCEPTED; forbidden for other bases }
+    UrgentRuleChange:
+      type: object
+      additionalProperties: false
+      required: [kind, version, rules]
+      properties:
+        kind: { type: string, const: URGENT_RULE_CHANGE }
+        version: { type: string, minLength: 1 }
+        rules:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: Replaces the catalog in the new source version; old requests and snapshots remain intact
+          items:
+            type: object
+            additionalProperties: false
+            required: [workKind, durationMinutes, resourceIds, confirmationStatus]
+            properties:
+              workKind: { type: string, minLength: 1 }
+              durationMinutes: { type: integer, minimum: 1, maximum: 2147483647 }
+              resourceIds: { type: array, minItems: 1, uniqueItems: true, items: { type: string } }
+              confirmationStatus: { type: string, enum: [CONFIRMED, UNCONFIRMED, SYNTHETIC] }
+    UrgentWorkSourceRule:
+      type: object
+      required: [scenario_id, id, work_kind, rule_version, duration_minutes, resource_ids, confirmation_status, source]
+      properties:
+        scenario_id: { type: string, format: uuid }
+        id: { type: string, format: uuid }
+        work_kind: { type: string }
+        rule_version: { type: string }
+        duration_minutes: { type: integer, minimum: 1 }
+        resource_ids: { type: array, items: { type: string } }
+        confirmation_status: { type: string, enum: [CONFIRMED, UNCONFIRMED, SYNTHETIC] }
+        source: { type: string }
     SourceVersion:
       type: object
       properties:

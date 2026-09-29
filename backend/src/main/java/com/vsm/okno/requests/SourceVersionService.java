@@ -25,7 +25,7 @@ public class SourceVersionService {
     private static final List<String> FACT_TABLES = List.of("train", "odometer_reading", "resource",
             "resource_availability", "cycle_resource", "cycle_baseline", "fixed_trip", "service_event",
             "service_credit", "train_presence", "train_occupancy", "cleaning_counter", "frozen_work",
-            "urgent_work_requirement", "resource_outage");
+            "urgent_work_requirement", "resource_outage", "train_release", "urgent_work_rule", "urgent_work_rule_resource");
     public SourceVersionService(JdbcTemplate jdbc, SourceSnapshotRepository snapshots) {
         this.jdbc=jdbc; this.snapshots=snapshots;
     }
@@ -64,14 +64,23 @@ public class SourceVersionService {
 
     /** Returns exact retries before checking an advanced head. All effects commit together. */
     @Transactional public Receipt submit(Command command, String actor, boolean ruleEndpoint) {
+        return submitAllowed(command,actor,ruleEndpoint ? Set.of("RULE_CHANGE")
+                : Set.of("TRIP_CHANGE","TRIP_ADD","TRIP_CANCEL","URGENT_MAINTENANCE","RESOURCE_OUTAGE"));
+    }
+
+    /** Technologist-only endpoint; authorization is enforced before this transaction. */
+    @Transactional public Receipt submitE3Facts(Command command, String actor) {
+        return submitAllowed(command,actor,Set.of("TRAIN_RELEASE","URGENT_RULE_CHANGE"));
+    }
+
+    private Receipt submitAllowed(Command command,String actor,Set<String> allowedKinds) {
         check(command!=null,"request","is required");
         check(command.scenarioId()!=null,"scenarioId","is required");
         check(command.expectedVersion()!=null && command.expectedVersion()>=0,"expectedVersion","is required and nonnegative");
         bounded(command.idempotencyKey(),"idempotencyKey",200); bounded(command.reason(),"reason",1000); bounded(command.source(),"source",1000);
         JsonNode change=command.change(); check(change!=null && change.isObject(),"change","must be an object");
         String kind=text(change,"kind");
-        check(ruleEndpoint ? kind.equals("RULE_CHANGE") : Set.of("TRIP_CHANGE","TRIP_ADD","TRIP_CANCEL","URGENT_MAINTENANCE","RESOURCE_OUTAGE").contains(kind),
-                "kind",ruleEndpoint ? "must be RULE_CHANGE" : "is not a supported operational request");
+        check(allowedKinds.contains(kind),"kind","is not supported by this endpoint");
         String body=json.writeValueAsString(command);
         jdbc.queryForObject("select pg_advisory_xact_lock(hashtextextended(?,0))",Object.class,"request-key:"+actor+":"+command.idempotencyKey());
         var retry=jdbc.query("select id,command_hash=vsm.canonical_sha256(?::jsonb) as same from vsm.change_request where reported_by=? and idempotency_key=?",
@@ -86,7 +95,7 @@ public class SourceVersionService {
             throw new PlanningService.VersionConflictException(current.version());
         UUID next=UUID.randomUUID(), requestId=UUID.randomUUID();
         copyFacts(parent.scenarioId(),next);
-        apply(next,change,command.source());
+        apply(next,change,command.source(),actor);
         var saved=snapshots.capture(next);
         jdbc.update("insert into vsm.scenario_version(scenario_id,root_id,version,parent_scenario_id,snapshot_id,created_by) values (?,?,?,?,?,?)",
                 next,parent.rootId(),parent.version()+1,parent.scenarioId(),saved.id(),actor);
@@ -120,13 +129,14 @@ public class SourceVersionService {
             jdbc.update("insert into vsm."+table+"(scenario_id,"+cols+") select ?,"+cols+" from vsm."+table+" where scenario_id=?",to,from);
         }
     }
-    private void apply(UUID scenario,JsonNode c,String source) {
+    private void apply(UUID scenario,JsonNode c,String source,String actor) {
         String kind=text(c,"kind");
         switch (kind) {
             case "TRIP_CHANGE", "TRIP_ADD", "TRIP_CANCEL" -> trip(scenario,c,source,kind);
             case "URGENT_MAINTENANCE" -> urgent(scenario,c,source);
             case "RESOURCE_OUTAGE" -> outage(scenario,c,source);
             case "RULE_CHANGE" -> rules(scenario,c,source);
+            case "TRAIN_RELEASE", "URGENT_RULE_CHANGE" -> new E3SourceFactWriter(jdbc).apply(scenario,c,source,actor);
             default -> throw invalid("kind","is unsupported");
         }
     }
