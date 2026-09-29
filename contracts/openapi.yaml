@@ -48,6 +48,7 @@ paths:
                 type: object
                 properties:
                   username: { type: string }
+                  role: { type: string, enum: [PLANNER, TECHNOLOGIST, DISPATCHER] }
         '401':
           description: Not logged in
           content:
@@ -293,6 +294,53 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  /current-plan:
+    get:
+      summary: Newest plan of any scenario (what the dispatcher sees). Any role.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  planId: { type: string, format: uuid, nullable: true }
+
+  /incidents:
+    get:
+      summary: Dispatcher's incident log, newest first. Any role.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Incident' } }
+    post:
+      summary: Report a trip change, urgent maintenance or equipment failure. Logged for the planner; not fed to the solver.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [train, kind, description]
+              properties:
+                train: { type: string }
+                kind: { type: string, enum: [TRIP_CHANGE, URGENT_MAINTENANCE, EQUIPMENT_DOWN] }
+                description: { type: string, maxLength: 500 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '422':
+          description: Invalid train, kind or description
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   /plans/{id}/export:
     get:
       summary: Export plan as CSV
@@ -312,6 +360,15 @@ components:
       required: true
       schema: { type: string, format: uuid }
   schemas:
+    Incident:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        train: { type: string }
+        kind: { type: string, enum: [TRIP_CHANGE, URGENT_MAINTENANCE, EQUIPMENT_DOWN] }
+        description: { type: string }
+        reportedBy: { type: string }
+        reportedAt: { type: string, format: date-time }
     CaseDataset:
       type: object
       required: [source, dataset, trainCount, tripCount, planningSupported, warnings]

@@ -74,6 +74,14 @@ public final class Dto {
 
     public record ScenarioEvent(String kind, String description) {}
 
+    // Dispatcher's report of a change the plan has to account for (trip moved,
+    // urgent maintenance, equipment down). Logged for the planner, not fed to the solver.
+    public record Incident(UUID id, String train, String kind, String description,
+                           String reportedBy, Instant reportedAt) {}
+    public record IncidentRequest(String train, String kind, String description) {}
+    public record CurrentPlan(UUID planId) {}
+    public record Me(String username, String role) {}
+
     public record ErrorDetail(String field, String reason) {}
 
     public record ApiError(String code, String message, String traceId, List<ErrorDetail> details) {}

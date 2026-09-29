@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Conflict, Plan, ru, Train } from './api'
 import PlanningCalendar from './calendar/PlanningCalendar'
@@ -30,10 +30,14 @@ const fmt = (iso: string) =>
 // version, which remounts this and drops the now-outdated plan.
 export default function Planning({
   scenarioId,
-  trains
+  trains,
+  canApprove,
+  onPlan
 }: {
   scenarioId: string
   trains: Train[] | undefined
+  canApprove: boolean
+  onPlan: (planId: string | undefined) => void
 }) {
   const qc = useQueryClient()
   const [jobId, setJobId] = useState<string | null>(null)
@@ -53,7 +57,8 @@ export default function Planning({
   })
   const running = start.isPending || ['QUEUED', 'RUNNING'].includes(job.data?.status ?? '')
 
-  const planId = job.data?.planId
+  const planId = job.data?.planId ?? undefined
+  useEffect(() => onPlan(planId), [planId, onPlan])
   const plan = useQuery({ queryKey: ['plan', planId], queryFn: () => api.getPlan(planId!), enabled: !!planId })
   const calendar = useQuery({ queryKey: ['calendar', planId], queryFn: () => api.getCalendar(planId!), enabled: !!planId })
 
@@ -146,7 +151,7 @@ export default function Planning({
             </details>
           )}
 
-          {p.status !== 'APPROVED' && (
+          {canApprove && p.status !== 'APPROVED' && (
             <form
               className="row approve"
               onSubmit={(e) => {
@@ -169,13 +174,14 @@ export default function Planning({
               </a>
             </form>
           )}
-          {blocked && <p className="error">{blocked}</p>}
-          {!blocked && noD2 && (
+          {!canApprove && p.status !== 'APPROVED' && <p className="muted">Согласует планировщик.</p>}
+          {canApprove && blocked && <p className="error">{blocked}</p>}
+          {canApprove && !blocked && noD2 && (
             <p className="muted">
               {p.status === 'APPROVED' ? 'Согласован без' : 'Согласование пройдёт без'} независимой проверки D2.
             </p>
           )}
-          {p.status === 'APPROVED' && (
+          {(p.status === 'APPROVED' || !canApprove) && (
             <p><a className="btn-outline" href={`/api/v1/plans/${p.id}/export`} download>
               Скачать CSV
             </a></p>

@@ -4,6 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -37,7 +38,13 @@ public class SecurityConfig {
         return http
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/actuator/health/**").permitAll()
-                        .anyRequest().authenticated())
+                        // Dispatcher: sees the current plan, reports incidents. Nothing else.
+                        .requestMatchers("/api/v1/auth/**", "/api/v1/incidents", "/api/v1/current-plan").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/plans/*", "/api/v1/plans/*/calendar").authenticated()
+                        // Only the planner signs a plan off.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/plans/*/approve").hasRole("PLANNER")
+                        // Loading data and calculating: planner and technologist.
+                        .anyRequest().hasAnyRole("PLANNER", "TECHNOLOGIST"))
                 .csrf(c -> c.spa())
                 // The CSRF token is deferred: without reading it here the XSRF-TOKEN
                 // cookie is never written on the first (401) response, and the
@@ -71,12 +78,14 @@ public class SecurityConfig {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
     }
 
-    // ponytail: users live in config and are BCrypt-hashed at startup; swap for a
-    // users table (D1) when Postgres lands. No roles yet — add when the ТЗ needs them.
+    // ponytail: users live in config and are BCrypt-hashed at startup; the role is the
+    // demo login itself (planner/technologist/dispatcher). Swap for a users table with
+    // a role column (D1) when real accounts are needed.
     @Bean
     UserDetailsService userDetailsService(AuthProps props, PasswordEncoder encoder) {
         var users = props.users().entrySet().stream()
-                .map(u -> User.withUsername(u.getKey()).password(encoder.encode(u.getValue())).roles("USER").build())
+                .map(u -> User.withUsername(u.getKey()).password(encoder.encode(u.getValue()))
+                        .roles(u.getKey().toUpperCase(java.util.Locale.ROOT)).build())
                 .toList();
         return new InMemoryUserDetailsManager(users);
     }

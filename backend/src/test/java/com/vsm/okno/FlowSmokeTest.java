@@ -27,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // DirtiesContext: csrf() patches the CSRF repository inside the cached context.
 @SpringBootTest
 @AutoConfigureMockMvc
-@WithMockUser("tester")
+@WithMockUser(username = "tester", roles = "PLANNER")
 @DirtiesContext
 @Import(FlowSmokeTest.CleanValidator.class)
 class FlowSmokeTest {

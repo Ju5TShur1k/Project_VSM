@@ -1,6 +1,9 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, CaseDataset, DemoSource, ru, Train, Unauthorized } from './api'
+import { api, CaseDataset, DemoSource, Role, ru, Train, Unauthorized } from './api'
+import type { CalendarData } from './calendar/PlanningCalendar'
+import Dispatcher, { IncidentLog } from './Dispatcher'
 import Login from './Login'
 import Planning from './Planning'
 import CalendarDemo from './calendar/CalendarDemo'
@@ -16,16 +19,101 @@ export default function App() {
     <p className="muted"><a href="/">← Вернуться к парку</a></p>
     <CalendarDemo />
   </main>
-  return <Fleet username={me.data.username} />
+  const { username, role } = me.data
+  return (
+    <Shell username={username} role={role}>
+      {role === 'DISPATCHER' ? <Dispatcher /> : <Fleet canApprove={role === 'PLANNER'} />}
+    </Shell>
+  )
 }
 
-function Fleet({ username }: { username: string }) {
+const ROLE_NAME: Record<Role, string> = { PLANNER: 'планировщик', TECHNOLOGIST: 'технолог', DISPATCHER: 'диспетчер' }
+
+function Shell({ username, role, children }: { username: string; role: Role; children: ReactNode }) {
+  const qc = useQueryClient()
+  // resetQueries drops cached data (trains of the previous user) and re-runs
+  // /auth/me, which now 401s and sends us back to the login screen.
+  const logout = useMutation({ mutationFn: api.logout, onSuccess: () => qc.resetQueries() })
+  return (
+    <>
+      <header className="top">
+        <div>
+          <strong>ОКНО ВСМ</strong>
+          <span>Планирование ТО парка ЭВС360</span>
+        </div>
+        <span>
+          {username} ({ROLE_NAME[role] ?? role}) ·{' '}
+          <button className="link" onClick={() => logout.mutate()} disabled={logout.isPending}>
+            Выйти
+          </button>
+        </span>
+      </header>
+      <main>
+        <span className="demo-label">Демо-данные</span>
+        {children}
+      </main>
+    </>
+  )
+}
+
+const time = (iso: string) =>
+  new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+
+// ponytail: distance parsed from the trip label ("Рейс R1 · 670 км"); add distanceKm
+// to CalendarEvent if labels ever change.
+const km = (label: string) => Number(label.match(/(\d+)\s*км/)?.[1] ?? 0)
+
+// Everything here comes from the plan's calendar, i.e. the same snapshot the solver used.
+function TrainCard({ train, calendar, onClose }: { train: Train; calendar: CalendarData | undefined; onClose: () => void }) {
+  const events = calendar?.events.filter((e) => e.trainId === train.id) ?? []
+  const trips = events.filter((e) => e.kind === 'TRIP')
+  const services = events.filter((e) => e.kind === 'SERVICE').sort((a, b) => a.startAt.localeCompare(b.startAt))
+  const next = services[0]
+  const tripsBefore = next ? trips.filter((t) => Date.parse(t.endAt) <= Date.parse(next.startAt)) : trips
+  const arriveKm = train.mileageKm + tripsBefore.reduce((sum, t) => sum + km(t.label), 0)
+  const n = (v: number) => v.toLocaleString('ru-RU')
+  return (
+    <section className="card pad">
+      <div className="bar">
+        <h2>Состав {train.externalId}</h2>
+        <button className="btn-outline" onClick={onClose}>Закрыть</button>
+      </div>
+      <dl className="kv">
+        <dt>Статус</dt><dd><span className={`badge ${train.status}`}>{ru(train.status)}</span></dd>
+        <dt>Пробег сейчас</dt><dd>{n(train.mileageKm)} км</dd>
+        <dt>Рейсов в горизонте</dt>
+        <dd>{calendar ? `${trips.length} · ${n(trips.reduce((s, t) => s + km(t.label), 0))} км` : 'появится после расчёта'}</dd>
+        {next && <>
+          <dt>Ближайшее ТО</dt><dd>{next.cycleCode ?? next.label} · {time(next.startAt)} – {time(next.endAt)}</dd>
+          {next.releaseOdometerKm != null && next.dueOdometerKm != null &&
+            <><dt>Окно по пробегу</dt><dd>{n(next.releaseOdometerKm)} – {n(next.dueOdometerKm)} км</dd></>}
+          <dt>Рейсов до ТО</dt><dd>{tripsBefore.length}</dd>
+          <dt>Пробег к началу ТО</dt><dd>≈ {n(arriveKm)} км</dd>
+        </>}
+        {calendar && !next && <><dt>ТО в горизонте</dt><dd>не требуется</dd></>}
+      </dl>
+      {services.length > 1 && (
+        <details>
+          <summary>Все ТО в плане ({services.length})</summary>
+          <ul className="viol">
+            {services.map((s) => <li key={s.id}>{s.cycleCode ?? s.label}: {time(s.startAt)} – {time(s.endAt)}</li>)}
+          </ul>
+        </details>
+      )}
+    </section>
+  )
+}
+
+
+function Fleet({ canApprove }: { canApprove: boolean }) {
   const qc = useQueryClient()
   const [source, setSource] = useState<DemoSource | null>(null)
   const [arrivalMinute, setArrivalMinute] = useState(50)
   const [dataset, setDataset] = useState<'TOY' | CaseDataset['dataset']>('E2_6')
   const [caseData, setCaseData] = useState<CaseDataset | null>(null)
   const [shortDemo, setShortDemo] = useState(false)
+  const [planId, setPlanId] = useState<string | undefined>()
+  const [cardId, setCardId] = useState<string | null>(null)
   const scenarioId = source?.scenarioId ?? null
 
   const importMutation = useMutation({
@@ -46,33 +134,18 @@ function Fleet({ username }: { username: string }) {
     onSuccess: setSource
   })
 
-  // resetQueries drops cached data (trains of the previous user) and re-runs
-  // /auth/me, which now 401s and sends us back to the login screen.
-  const logout = useMutation({ mutationFn: api.logout, onSuccess: () => qc.resetQueries() })
-
   const trainsQuery = useQuery<Train[]>({
     queryKey: ['trains', scenarioId],
     queryFn: () => api.getTrains(scenarioId!),
     enabled: !!scenarioId
   })
 
+  // Same query key as in Planning, so the card reuses the loaded calendar.
+  const calendar = useQuery({ queryKey: ['calendar', planId], queryFn: () => api.getCalendar(planId!), enabled: !!planId })
+  const card = trainsQuery.data?.find((t) => t.id === cardId)
+
   return (
     <>
-      <header className="top">
-        <div>
-          <strong>ОКНО ВСМ</strong>
-          <span>Планирование ТО парка ЭВС360</span>
-        </div>
-        <span>
-          {username} ·{' '}
-          <button className="link" onClick={() => logout.mutate()} disabled={logout.isPending}>
-            Выйти
-          </button>
-        </span>
-      </header>
-      <main>
-        <span className="demo-label">Демо-данные</span>
-
         <section className="card pad">
           <h2>Исходные данные</h2>
           <div className="row">
@@ -110,7 +183,9 @@ function Fleet({ username }: { username: string }) {
               <tbody>
                 {trainsQuery.data.map((t) => (
                   <tr key={t.id}>
-                    <td>{t.externalId}</td>
+                    <td>
+                      <button className="link" onClick={() => setCardId(t.id)} title="Карточка поезда">{t.externalId}</button>
+                    </td>
                     <td>
                       <span className={`badge ${t.status}`}>{ru(t.status)}</span>
                     </td>
@@ -122,6 +197,8 @@ function Fleet({ username }: { username: string }) {
             </table>
           </section>
         )}
+
+        {card && <TrainCard train={card} calendar={calendar.data} onClose={() => setCardId(null)} />}
 
         {source && shortDemo && (
           <section className="card pad">
@@ -140,9 +217,13 @@ function Fleet({ username }: { username: string }) {
           </section>
         )}
         {source && (caseData?.planningSupported !== false
-          ? <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data} />
+          ? <Planning key={source.snapshotHash} scenarioId={source.scenarioId} trains={trainsQuery.data}
+              canApprove={canApprove} onPlan={setPlanId} />
           : <p className="muted">Расчёт для полного парка появится после подключения резерва, уборки и закреплённых работ. Для расчёта выберите набор из 6 составов.</p>)}
-      </main>
+        <section className="card">
+          <h2 className="pad-h">Сообщения диспетчера</h2>
+          <IncidentLog />
+        </section>
     </>
   )
 }

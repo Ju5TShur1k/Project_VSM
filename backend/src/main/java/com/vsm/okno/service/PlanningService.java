@@ -25,6 +25,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -226,6 +227,7 @@ public class PlanningService {
 
             Store.Plan plan = toPlan(scenario.id, snapshot, result, projection);
             store.plans.put(plan.id, plan);
+            store.latestPlanId = plan.id;
             job.planId = plan.id;
             job.solverStatus = result.solverStatus().name();
             job.status = "SUCCEEDED";
@@ -376,6 +378,26 @@ public class PlanningService {
             ));
         }
         return trains;
+    }
+
+    private static final Set<String> INCIDENT_KINDS = Set.of("TRIP_CHANGE", "URGENT_MAINTENANCE", "EQUIPMENT_DOWN");
+
+    public Dto.CurrentPlan currentPlan() {
+        return new Dto.CurrentPlan(store.latestPlanId);
+    }
+
+    public Dto.Incident reportIncident(Dto.IncidentRequest req, String actor) {
+        if (req == null || req.train() == null || req.train().isBlank()) throw new InvalidRequestException("train", "is required");
+        if (!INCIDENT_KINDS.contains(req.kind())) throw new InvalidRequestException("kind", "must be one of " + INCIDENT_KINDS);
+        String text = req.description() == null ? "" : req.description().strip();
+        if (text.isEmpty() || text.length() > 500) throw new InvalidRequestException("description", "must be 1..500 characters");
+        var incident = new Dto.Incident(UUID.randomUUID(), req.train().strip(), req.kind(), text, actor, Instant.now());
+        store.incidents.add(0, incident);
+        return incident;
+    }
+
+    public List<Dto.Incident> incidents() {
+        return List.copyOf(store.incidents);
     }
 
     private static <K, V> V require(Map<K, V> map, K id, String what) {

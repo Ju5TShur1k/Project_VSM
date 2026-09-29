@@ -37,7 +37,8 @@ const moscow = (iso: string) => new Date(iso).toLocaleString('ru-RU', {
   timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
 })
 
-export default function PlanningCalendar({ data }: { data: CalendarData }) {
+// details=false: the dispatcher sees when trains are busy, not mileage bounds and rule sources.
+export default function PlanningCalendar({ data, details = true }: { data: CalendarData; details?: boolean }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const start = Date.parse(data.horizonStart)
   const end = Date.parse(data.horizonEnd)
@@ -90,7 +91,7 @@ export default function PlanningCalendar({ data }: { data: CalendarData }) {
           </div>)}
         </div>
       </div>
-      {selected ? <div className="calendar-detail" aria-live="polite">
+      {!details ? <p className="muted">Время московское.</p> : selected ? <div className="calendar-detail" aria-live="polite">
         <h3>{selected.label}</h3>
         <dl className="kv">
           <dt>Интервал</dt><dd>{moscow(selected.startAt)} — {moscow(selected.endAt)}</dd>

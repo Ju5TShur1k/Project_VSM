@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 // failures change what the solver produces. Needs the OR-Tools natives (README).
 @SpringBootTest
 @AutoConfigureMockMvc
-@WithMockUser("tester")
+@WithMockUser(username = "tester", roles = "PLANNER")
 @DirtiesContext
 class PlannerWiringTest {
 

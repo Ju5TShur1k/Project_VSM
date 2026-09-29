@@ -71,4 +71,35 @@ class AuthTest {
         mvc.perform(get("/api/v1/auth/me").session(session))
                 .andExpect(status().isUnauthorized());
     }
+
+    MockHttpSession login(String user, String password, Cookie token) throws Exception {
+        var session = new MockHttpSession();
+        mvc.perform(post("/api/v1/auth/login", token).session(session)
+                        .param("username", user).param("password", password))
+                .andExpect(status().isOk());
+        return session;
+    }
+
+    @Test
+    void rolesLimitWhatEachAccountCanDo() throws Exception {
+        var token = xsrf();
+        var dispatcher = login("dispatcher", "disp-demo", token);
+        mvc.perform(get("/api/v1/auth/me").session(dispatcher)).andExpect(jsonPath("$.role").value("DISPATCHER"));
+        mvc.perform(get("/api/v1/current-plan").session(dispatcher)).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/incidents", token).session(dispatcher).contentType("application/json")
+                        .content("{\"train\":\"CASE-01\",\"kind\":\"URGENT_MAINTENANCE\",\"description\":\"стук в тележке\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.reportedBy").value("dispatcher"));
+        mvc.perform(post("/api/v1/planning-jobs", token).session(dispatcher).contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/plans/00000000-0000-0000-0000-000000000000/approve", token).session(dispatcher)
+                        .contentType("application/json").content("{\"expectedVersion\":0}"))
+                .andExpect(status().isForbidden());
+
+        // technologist calculates but does not sign off
+        var technologist = login("technologist", "tech-demo", token);
+        mvc.perform(post("/api/v1/plans/00000000-0000-0000-0000-000000000000/approve", token).session(technologist)
+                        .contentType("application/json").content("{\"expectedVersion\":0}"))
+                .andExpect(status().isForbidden());
+    }
 }

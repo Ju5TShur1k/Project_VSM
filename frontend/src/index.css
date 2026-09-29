@@ -146,3 +146,4 @@ details { margin-top: 24px; }
 summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 details table { margin-top: 12px; }
 details th, details td { padding: 10px 16px; }
+.grow { flex: 1; min-width: 240px; }

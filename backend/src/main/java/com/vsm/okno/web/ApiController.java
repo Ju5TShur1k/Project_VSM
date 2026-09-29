@@ -5,6 +5,7 @@ import com.vsm.okno.service.PlanningService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -87,8 +88,25 @@ public class ApiController {
     }
 
     @GetMapping("/auth/me")
-    public Map<String, String> me(Principal principal) {
-        return Map.of("username", principal.getName());
+    public Dto.Me me(Authentication auth) {
+        String role = auth.getAuthorities().stream().map(a -> a.getAuthority())
+                .filter(a -> a.startsWith("ROLE_")).map(a -> a.substring(5)).findFirst().orElse("");
+        return new Dto.Me(auth.getName(), role);
+    }
+
+    @GetMapping("/current-plan")
+    public Dto.CurrentPlan currentPlan() {
+        return service.currentPlan();
+    }
+
+    @GetMapping("/incidents")
+    public List<Dto.Incident> incidents() {
+        return service.incidents();
+    }
+
+    @PostMapping("/incidents")
+    public ResponseEntity<Dto.Incident> reportIncident(@RequestBody Dto.IncidentRequest request, Principal principal) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.reportIncident(request, principal.getName()));
     }
 
     @GetMapping(value = "/plans/{id}/export", produces = "text/csv")
