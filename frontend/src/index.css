@@ -171,3 +171,39 @@ details th, details td { padding: 10px 16px; }
 
 /* иконки разделов: красный контур рядом с синим заголовком */
 .ico { width: 20px; height: 20px; margin-right: 10px; vertical-align: -3px; color: var(--accent); flex: none; }
+
+/* рабочие области: вкладки под шапкой */
+.tabs { display: flex; gap: 4px; padding: 0 max(20px, calc((100% - 960px) / 2 + 20px)); background: var(--surface); border-bottom: 1px solid var(--line); }
+.tabs button, .tabs button:hover:not(:disabled) {
+  padding: 14px 18px; border: 0; border-bottom: 3px solid transparent; border-radius: 0;
+  background: none; color: var(--muted);
+}
+.tabs button.on { color: var(--brand); border-bottom-color: var(--accent); }
+.tabs button:hover:not(.on) { color: var(--text); }
+
+/* переключатель форм «Изменился рейс / Нужно срочное ТО» */
+.seg { display: inline-flex; margin: 20px 0 8px; border: 1px solid var(--line); }
+.seg button, .seg button:hover:not(:disabled) { background: none; color: var(--muted); border: 0; border-radius: 0; }
+.seg button.on { background: var(--brand); color: #fff; }
+.event-form { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+.event-form > button { align-self: flex-start; }
+.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
+.sent { margin-top: 24px; padding: 16px 20px; border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok) 6%, var(--surface)); }
+.sent p { margin: 0 0 12px; }
+.mock-note { padding: 10px 14px; border-left: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); font-size: 13px; }
+.pad-x { padding: 0 32px; }
+
+/* цепочка заявки: получена → принята → рассчитана → проверена → согласована */
+.chain { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+.chain li { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-top: 3px solid var(--line); font-size: 13px; }
+.chain li strong { font-size: 13px; }
+.chain li span { color: var(--muted); overflow-wrap: anywhere; }
+.chain li.done { border-top-color: var(--ok); }
+.chain li.failed { border-top-color: var(--err); }
+@media (max-width: 700px) { .chain { grid-template-columns: 1fr 1fr; } }
+
+tr.clickable { cursor: pointer; }
+tr.current td { background: color-mix(in srgb, var(--brand) 6%, transparent); }
+.badge.RECEIVED, .badge.APPLIED, .badge.CALCULATED { color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent); }
+.badge.VALIDATED { color: var(--ok); }
+.badge.REJECTED { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
