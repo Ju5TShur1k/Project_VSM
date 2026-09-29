@@ -1,6 +1,8 @@
 package com.vsm.okno.planning;
 
 import com.vsm.okno.data.SourceSnapshotRepository.SourceSnapshot;
+import com.vsm.okno.data.SourceSnapshotE2Adapter;
+import com.vsm.okno.data.SourceSnapshotE3Adapter;
 import com.vsm.okno.validation.PlanFingerprint;
 import com.vsm.okno.validation.E3TripAssignmentAudit;
 import com.vsm.okno.validation.E3MileageObligationAudit;
@@ -94,6 +96,44 @@ class E3TripAssignmentLedgerTest {
                         START.plusHours(7), 55));
     }
 
+    @Test
+    void newRequestFactsCannotDisappearFromAnE3Candidate() {
+        var base = source("SPB_DEPOT", "[]");
+        var proposed = new E3TripAssignmentLedger().evaluate(base, Map.of(), START, 55);
+        var urgent = addFact(base, "\"urgentWorkRequirements\":[{}]");
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> new SourceSnapshotE3Adapter().project(urgent)).getMessage()
+                .contains("urgentWorkRequirements"));
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> new SourceSnapshotE2Adapter().project(urgent)).getMessage()
+                .contains("urgentWorkRequirements"));
+        assertThrows(IllegalArgumentException.class,
+                () -> new E3TripAssignmentLedger().evaluate(urgent, Map.of(), START, 55));
+        var falselyRetained = new E3TripAssignmentLedger.Assignment(proposed.scenarioId(),
+                urgent.id(), urgent.snapshotHash(), proposed.frozenUntil(), proposed.preparationMinutes(),
+                proposed.trips(), proposed.trains(), proposed.changedTripCount());
+        assertTrue(new E3TripAssignmentAudit().check(urgent, falselyRetained, START, 55).stream()
+                .anyMatch(f -> f.code().equals("D2_E3_URGENT_WORK_UNSUPPORTED")));
+
+        var outage = addFact(base, "\"resourceOutages\":[{\"resource_id\":\"PATH-1\","
+                + "\"starts_at\":\"2031-07-01T09:00:00+03:00\","
+                + "\"ends_at\":\"2031-07-01T10:00:00+03:00\"}]");
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> new SourceSnapshotE2Adapter().project(outage)).getMessage()
+                .contains("resourceOutages"));
+        assertTrue(assertThrows(IllegalArgumentException.class,
+                () -> new SourceSnapshotE3Adapter().project(outage)).getMessage()
+                .contains("overlaps outage"));
+    }
+
+    private static SourceSnapshot addFact(SourceSnapshot original, String property) {
+        String payload = original.canonicalPayload().stripTrailing();
+        payload = payload.substring(0, payload.length() - 1) + "," + property + "}";
+        return new SourceSnapshot(original.id(), original.scenarioId(), original.schemaVersion(),
+                original.canonicalization(), PlanFingerprint.sha256(payload), payload,
+                original.capturedAt());
+    }
+
     private static SourceSnapshot source(String cityB, String occupancy) {
         String payload = """
                 {"schemaVersion":"d1-source-1.0","canonicalization":"pg-jsonb-text-v1",
@@ -111,7 +151,10 @@ class E3TripAssignmentLedgerTest {
                 "trainOccupancy":%s,"frozenWork":[],
                 "ruleSets":[{"id":"%s","confirmation_status":"SYNTHETIC",
                 "mileage_policy":"ABSOLUTE_GRID","tolerance_basis":"NOMINAL_MILESTONE"}],
-                "resources":[{"id":"PATH-1"}],
+                "resources":[{"id":"PATH-1","location":"SPB_DEPOT"}],
+                "resourceAvailability":[{"resource_id":"PATH-1",
+                "starts_at":"2031-07-01T00:00:00+03:00",
+                "ends_at":"2031-07-02T00:00:00+03:00"}],
                 "cycleResources":[{"rule_set_id":"%s","cycle_code":"IS100","resource_id":"PATH-1"}],
                 "cycleRules":[{"rule_set_id":"%s","code":"IS100","interval_km":500,
                 "tolerance_basis_points":2000,"duration_minutes":120,"rank":1,"source":"synthetic rule"}],

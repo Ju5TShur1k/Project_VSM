@@ -37,6 +37,9 @@ public final class SourceSnapshotE3Adapter {
         require("d1-source-1.0".equals(text(root, "schemaVersion")), "payload version mismatch");
         require("pg-jsonb-text-v1".equals(text(root, "canonicalization")), "payload canonicalization mismatch");
         require(stored.scenarioId().equals(uuid(root, "scenarioId")), "payload scenario mismatch");
+        JsonNode urgent = root.path("urgentWorkRequirements");
+        require(urgent.isMissingNode() || (urgent.isArray() && urgent.isEmpty()),
+                "urgentWorkRequirements need duration, resource and release rules before E3 planning");
         JsonNode scenario = root.path("scenario");
         require(scenario.isObject(), "scenario missing");
         OffsetDateTime start = time(scenario, "horizon_start");
@@ -61,6 +64,21 @@ public final class SourceSnapshotE3Adapter {
             resourceLocations.put(id, text(row, "location"));
         }
         require(!resources.isEmpty(), "resources missing");
+        JsonNode outages = root.path("resourceOutages");
+        require(outages.isMissingNode() || outages.isArray(), "resourceOutages must be an array");
+        if (outages.isArray()) for (JsonNode outage : outages) {
+            String resource = text(outage, "resource_id");
+            OffsetDateTime from = time(outage, "starts_at"), to = time(outage, "ends_at");
+            require(resourceLocations.containsKey(resource) && from.isBefore(to)
+                            && !from.isBefore(start) && !to.isAfter(end),
+                    "invalid resource outage " + resource);
+            for (JsonNode availability : array(root, "resourceAvailability")) {
+                if (resource.equals(text(availability, "resource_id")))
+                    require(!from.isBefore(time(availability, "ends_at"))
+                                    || !time(availability, "starts_at").isBefore(to),
+                            "resource availability overlaps outage " + resource);
+            }
+        }
         Map<String, List<String>> resourcesByCycle = new HashMap<>();
         for (JsonNode row : array(root, "cycleResources")) {
             if (!ruleSetId.equals(uuid(row, "rule_set_id"))) continue;

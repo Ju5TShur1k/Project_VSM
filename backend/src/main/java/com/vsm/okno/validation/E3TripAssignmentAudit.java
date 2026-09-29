@@ -47,6 +47,9 @@ public final class E3TripAssignmentAudit {
                             && saved.schemaVersion().equals(text(root, "schemaVersion"))
                             && saved.canonicalization().equals(text(root, "canonicalization")),
                     "D2_SOURCE_MISMATCH", "Метаданные payload не совпадают");
+            JsonNode urgent = root.path("urgentWorkRequirements");
+            require(urgent.isMissingNode() || (urgent.isArray() && urgent.isEmpty()),
+                    "D2_E3_URGENT_WORK_UNSUPPORTED", "Срочная работа не учтена в назначениях");
             OffsetDateTime horizonStart = time(root.path("scenario"), "horizon_start");
             OffsetDateTime horizonEnd = time(root.path("scenario"), "horizon_end");
             require(saved.scenarioId().equals(uuid(root.path("scenario"), "id")),

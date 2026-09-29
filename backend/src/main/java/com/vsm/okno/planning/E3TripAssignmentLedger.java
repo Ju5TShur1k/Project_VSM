@@ -56,6 +56,9 @@ public final class E3TripAssignmentLedger {
                 || !saved.schemaVersion().equals(text(root, "schemaVersion"))
                 || !saved.canonicalization().equals(text(root, "canonicalization")))
             throw new IllegalArgumentException("source scenario mismatch");
+        JsonNode urgent = root.path("urgentWorkRequirements");
+        if (!urgent.isMissingNode() && (!urgent.isArray() || !urgent.isEmpty()))
+            throw new IllegalArgumentException("urgentWorkRequirements need explicit E3 work rules");
         JsonNode scenario = root.path("scenario");
         if (!saved.scenarioId().equals(uuid(scenario, "id")))
             throw new IllegalArgumentException("scenario row mismatch");

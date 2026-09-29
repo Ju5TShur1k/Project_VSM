@@ -27,7 +27,8 @@ public final class E3SourcePlanAudit {
     private static final Set<String> ROOT_FIELDS = Set.of("schemaVersion", "canonicalization", "scenarioId",
             "scenario", "ruleSets", "cycleRules", "trains", "odometerReadings", "resources",
             "resourceAvailability", "cycleResources", "cycleBaselines", "fixedTrips", "serviceEvents",
-            "serviceCredits", "trainPresence", "trainOccupancy", "cleaningCounters", "frozenWork");
+            "serviceCredits", "trainPresence", "trainOccupancy", "cleaningCounters", "frozenWork",
+            "resourceOutages");
 
     private record Window(UUID train, String resource, int from, int to) {}
 
@@ -54,7 +55,8 @@ public final class E3SourcePlanAudit {
                             && saved.canonicalization().equals(text(root, "canonicalization")),
                     "D2_SOURCE_MISMATCH", "Метаданные payload не совпадают");
             for (String field : ROOT_FIELDS) {
-                if (Set.of("schemaVersion", "canonicalization", "scenarioId", "scenario").contains(field)) continue;
+                if (Set.of("schemaVersion", "canonicalization", "scenarioId", "scenario",
+                        "resourceOutages").contains(field)) continue;
                 for (JsonNode row : rows(root, field)) {
                     require(row.isObject(), "D2_SOURCE_INVALID", "Строка " + field + " не объект");
                     if (row.has("scenario_id")) require(saved.scenarioId().equals(uuid(row, "scenario_id")),
@@ -98,6 +100,25 @@ public final class E3SourcePlanAudit {
             prepared.resources().forEach(resource -> projectedResources.add(resource.id()));
             if (!projectedResources.equals(resources.keySet()))
                 issue(findings, "D2_E3_RESOURCE_SET", "Набор ресурсов отличается от источника", null);
+            JsonNode outages = root.path("resourceOutages");
+            require(outages.isMissingNode() || outages.isArray(), "D2_E3_OUTAGE_SOURCE",
+                    "Отключения ресурсов должны быть массивом");
+            if (outages.isArray()) for (JsonNode outage : outages) {
+                require(saved.scenarioId().equals(uuid(outage, "scenario_id"))
+                                && resources.containsKey(text(outage, "resource_id")),
+                        "D2_E3_OUTAGE_SOURCE", "Отключение относится к чужому ресурсу");
+                text(outage, "source");
+                OffsetDateTime from = time(outage, "starts_at"), to = time(outage, "ends_at");
+                require(!from.isBefore(start) && !to.isAfter(end) && from.isBefore(to),
+                        "D2_E3_OUTAGE_SOURCE", "Неверный интервал отключения");
+                for (JsonNode available : rows(root, "resourceAvailability")) {
+                    if (text(outage, "resource_id").equals(text(available, "resource_id"))
+                            && from.isBefore(time(available, "ends_at"))
+                            && time(available, "starts_at").isBefore(to))
+                        issue(findings, "D2_E3_OUTAGE_AVAILABILITY",
+                                "Отключённый ресурс остался доступен", uuid(outage, "id"));
+                }
+            }
 
             Map<String, Set<String>> resourcesByCycle = new HashMap<>();
             for (JsonNode mapping : rows(root, "cycleResources")) {
