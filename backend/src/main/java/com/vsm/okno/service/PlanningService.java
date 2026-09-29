@@ -5,6 +5,7 @@ import com.vsm.okno.data.DemoSourceService;
 import com.vsm.okno.data.CaseDatasetService;
 import com.vsm.okno.data.SourceSnapshotE2Adapter;
 import com.vsm.okno.data.SourceSnapshotRepository;
+import com.vsm.okno.data.SourcePlanningAdapter;
 import com.vsm.okno.planning.CpSatPlanner;
 import com.vsm.okno.planning.EarliestDueDatePlanner;
 import com.vsm.okno.planning.MileageObligationGenerator;
@@ -14,6 +15,10 @@ import com.vsm.okno.planning.PlannerRequest;
 import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.planning.ScenarioSnapshot;
 import com.vsm.okno.store.Store;
+import com.vsm.okno.store.DatabasePlanningRepository;
+import com.vsm.okno.requests.SourceVersionService;
+import com.vsm.okno.requests.RequestDto;
+import tools.jackson.databind.ObjectMapper;
 import com.vsm.okno.validation.IndependentIntervalAudit;
 import com.vsm.okno.validation.PlanFingerprint;
 import com.vsm.okno.validation.PlanMetrics;
@@ -34,6 +39,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class PlanningService {
@@ -41,18 +48,23 @@ public class PlanningService {
     // A client-supplied limit would let any logged-in user pin the solver thread.
     private static final int MAX_TIME_LIMIT_SEC = 300;
 
-    // Placeholder until D2's validator exists. A WARNING, not CRITICAL: the plan may be
-    // approved "with a caveat" (validationStatus stays NOT_PERFORMED on the approved plan).
-    // Once a PlanValidator bean exists, approval requires PASS again.
+    // A missing validator never authorizes approval.
     private static final PlanValidator NOT_PERFORMED = (snapshot, result) -> List.of(new Dto.Validation(
             "VALIDATION_NOT_PERFORMED", "WARNING",
-            "Независимая проверка D2 не выполнена — план согласуется с оговоркой"));
+            "Независимая проверка D2 не выполнена — согласование запрещено"));
 
     private final Store store = new Store();
     private final PlanValidator validator;
     private final DemoSourceService demoSource;
     private final SourceSnapshotRepository sourceSnapshots;
     private final CaseDatasetService caseDatasets;
+    private final DatabasePlanningRepository database;
+    private final SourceVersionService sourceVersions;
+    private final SourcePlanningAdapter sourceAdapter;
+    private final UUID workerId=UUID.randomUUID();
+    private final ScheduledExecutorService heartbeats=Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t=new Thread(r,"planner-heartbeat"); t.setDaemon(true); return t;
+    });
 
     private final Planner cpSat = new CpSatPlanner();
     private final Map<PlannerRequest.Policy, Planner> planners = Map.of(
@@ -60,10 +72,8 @@ public class PlanningService {
             PlannerRequest.Policy.WHOLE_CYCLE_CP_SAT, cpSat,
             PlannerRequest.Policy.WHOLE_CYCLE_EDD, new EarliestDueDatePlanner());
 
-    // ponytail: one in-process worker thread, jobs run strictly one at a time and
-    // are lost on restart. Move to a PostgreSQL-backed queue (FOR UPDATE SKIP LOCKED,
-    // lease/heartbeat, per the ТЗ) once D1's DB carries jobs.
-    private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
+    // Database profile claims durable jobs with a fenced lease; default profile remains a toy.
+    private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "planner-worker");
         t.setDaemon(true);
         return t;
@@ -72,16 +82,28 @@ public class PlanningService {
     public PlanningService(ObjectProvider<PlanValidator> validators,
                            ObjectProvider<DemoSourceService> demoSources,
                            ObjectProvider<SourceSnapshotRepository> sourceRepositories,
-                           ObjectProvider<CaseDatasetService> caseSources) {
+                           ObjectProvider<CaseDatasetService> caseSources,
+                           ObjectProvider<DatabasePlanningRepository> databases,
+                           ObjectProvider<SourceVersionService> versions,
+                           ObjectProvider<SourcePlanningAdapter> adapters) {
         this.validator = validators.getIfAvailable(() -> NOT_PERFORMED);
         this.demoSource = demoSources.getIfAvailable();
         this.sourceSnapshots = sourceRepositories.getIfAvailable();
         this.caseDatasets = caseSources.getIfAvailable();
+        this.database=databases.getIfAvailable();
+        this.sourceVersions=versions.getIfAvailable();
+        this.sourceAdapter=adapters.getIfAvailable();
+    }
+
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void startDurableWorker() {
+        if (database!=null) worker.scheduleWithFixedDelay(this::pollDatabase,500,500,TimeUnit.MILLISECONDS);
     }
 
     @PreDestroy
     void shutdown() {
         worker.shutdownNow();
+        heartbeats.shutdownNow();
     }
 
     public Dto.ImportResponse importScenario(Dto.ImportRequest request) {
@@ -98,7 +120,7 @@ public class PlanningService {
         scenario.createdAt = Instant.now();
         scenario.provenance = "synthetic";
         scenario.trains = trains;
-        store.scenarios.put(scenario.id, scenario);
+        saveScenario(scenario);
 
         return new Dto.ImportResponse(scenario.id, warnings, scenario.provenance);
     }
@@ -112,7 +134,7 @@ public class PlanningService {
         scenario.provenance = "Демонстрационные данные";
         scenario.trains = captured.trains();
         scenario.sourceSnapshotId = captured.snapshotId();
-        store.scenarios.put(scenario.id, scenario);
+        saveScenario(scenario);
         return demoResponse(captured);
     }
 
@@ -121,14 +143,24 @@ public class PlanningService {
         if (arrivalMinute < 50 || arrivalMinute > 60) {
             throw new InvalidRequestException("arrivalMinute", "must be between 50 and 60");
         }
-        Store.Scenario scenario = require(store.scenarios, scenarioId, "scenario");
+        Store.Scenario scenario = scenario(scenarioId);
         if (!"Демонстрационные данные".equals(scenario.provenance)) {
             throw new InvalidRequestException("scenario", "R1 editor is only supported for the short demo");
         }
         if (scenario.sourceSnapshotId == null) throw new InvalidRequestException("scenario", "is not a saved demo source");
-        var captured = demoSource.changeR1Arrival(scenarioId, arrivalMinute);
-        scenario.sourceSnapshotId = captured.snapshotId();
-        return demoResponse(captured);
+        var version=sourceVersions.version(scenarioId);
+        var source=sourceVersions.source(scenarioId);
+        var trip=java.util.stream.StreamSupport.stream(source.path("fixedTrips").spliterator(),false)
+                .filter(t -> "R1".equals(t.path("label").asText())).findFirst()
+                .orElseThrow(() -> new NotFoundException("R1 not found"));
+        var json=new ObjectMapper(); var change=json.createObjectNode().put("kind","TRIP_CHANGE")
+                .put("tripId",trip.path("id").asText()).put("trainId",trip.path("train_id").asText())
+                .put("departureAt",trip.path("departure_at").asText())
+                .put("arrivalAt","2028-07-01T"+String.format("%02d:%02d:00+03:00",arrivalMinute/60,arrivalMinute%60));
+        var receipt=sourceVersions.submit(new RequestDto.Command(scenarioId,version.version(),UUID.randomUUID().toString(),
+                "Изменение прибытия R1 в совместимом демо API","Демонстрационные данные",change),currentActor(),false);
+        var updated=receipt.version();
+        return new Dto.DemoSource(updated.scenarioId(),updated.snapshotId(),updated.snapshotHash(),scenario.provenance);
     }
 
     private static Dto.DemoSource demoResponse(DemoSourceService.Captured captured) {
@@ -154,24 +186,31 @@ public class PlanningService {
         scenario.sourceSnapshotId = response.source().snapshotId();
         if (!response.planningSupported()) scenario.planningUnsupportedReason =
                 "FULL43: при фиксированном закреплении рейсов для длительных ТО нет достаточных окон. Нужны переназначение рейсов и полная независимая D2-проверка. E3 assessment доступен по ID source snapshot.";
-        store.scenarios.put(scenario.id, scenario);
+        saveScenario(scenario);
+        var head=sourceVersions.head(scenario.id);
+        if (!head.scenarioId().equals(scenario.id)) {
+            var latest=scenario(head.scenarioId());
+            return new Dto.CaseDataset(new Dto.DemoSource(latest.id,head.snapshotId(),head.snapshotHash(),latest.provenance),
+                    response.dataset(),latest.trains.size(),sourceVersions.source(latest.id).path("fixedTrips").size(),response.planningSupported(),response.warnings());
+        }
         return response;
     }
 
     public Dto.Scenario getScenario(UUID id) {
-        Store.Scenario s = require(store.scenarios, id, "scenario");
+        Store.Scenario s = scenario(id);
         return new Dto.Scenario(s.id, s.createdAt, s.provenance, s.trains.size());
     }
 
     public List<Dto.Train> getTrains(UUID scenarioId) {
-        return require(store.scenarios, scenarioId, "scenario").trains;
+        return scenario(scenarioId).trains;
     }
 
     /** Queues a planning job and returns immediately; the solver runs on the worker thread. */
     public Dto.JobStatus createJob(Dto.JobRequest req) {
+        if (req==null) throw new InvalidRequestException("request","is required");
         if (req.scenarioId() == null) throw new InvalidRequestException("scenarioId", "is required");
-        Store.Scenario scenario = require(store.scenarios, req.scenarioId(), "scenario");
-        if (scenario.planningUnsupportedReason != null) {
+        Store.Scenario scenario = scenario(req.scenarioId());
+        if (scenario.planningUnsupportedReason != null && sourceAdapter==null) {
             throw new InvalidRequestException("scenario", scenario.planningUnsupportedReason);
         }
         PlannerRequest.Policy policy = parsePolicy(req.policy());
@@ -181,7 +220,14 @@ public class PlanningService {
         if (req.seed() < Integer.MIN_VALUE || req.seed() > Integer.MAX_VALUE) {
             throw new InvalidRequestException("seed", "must fit in a 32-bit integer");
         }
-        int frozenMinute = frozenMinute(req.frozenUntil());
+        int frozenMinute = frozenMinute(req.frozenUntil(),scenario.sourceSnapshotId);
+
+        if (database!=null) {
+            var saved=scenario.sourceSnapshotId==null ? null : sourceSnapshots.findById(scenario.sourceSnapshotId).orElseThrow();
+            var p=new DatabasePlanningRepository.Parameters(scenario.id,scenario.sourceSnapshotId,saved==null?null:saved.snapshotHash(),
+                    policy.name(),(int)req.seed(),req.timeLimitSec(),frozenMinute);
+            return toJobStatus(database.enqueue(p,currentActor(),req.idempotencyKey()));
+        }
 
         UUID jobId;
         if (req.idempotencyKey() == null) {
@@ -218,26 +264,69 @@ public class PlanningService {
                      int seed, int timeLimitSec, int frozenMinute) {
         job.status = "RUNNING";
         try {
-            MileageObligationGenerator.Projection projection = snapshotId == null ? null
-                    : new SourceSnapshotE2Adapter().project(sourceSnapshots.findById(snapshotId)
-                    .orElseThrow(() -> new NotFoundException("snapshot not found: " + snapshotId)));
-            ScenarioSnapshot snapshot = projection == null
-                    ? SyntheticSnapshot.of(scenario.id, scenario.trains, scenario.failures)
-                    : projection.snapshot();
-            PlannerRequest request = new PlannerRequest(frozenMinute > 0 ? "1.1" : "1.0", scenario.id,
-                    snapshot.snapshotHash(), policy, seed, timeLimitSec, frozenMinute);
-            PlannerResult result = planners.get(policy).plan(snapshot, request);
-
-            Store.Plan plan = toPlan(scenario.id, snapshot, result, projection);
+            Store.Plan plan = calculate(scenario,snapshotId,policy,seed,timeLimitSec,frozenMinute);
             store.plans.put(plan.id, plan);
             store.latestPlanId = plan.id;
             job.planId = plan.id;
-            job.solverStatus = result.solverStatus().name();
+            job.solverStatus = plan.solverStatus;
             job.status = "SUCCEEDED";
         } catch (Exception | LinkageError e) { // LinkageError: OR-Tools natives failed to load
             job.error = e.getClass().getSimpleName() + ": " + e.getMessage();
             job.status = "FAILED";
         }
+    }
+
+    private Store.Plan calculate(Store.Scenario scenario,UUID snapshotId,PlannerRequest.Policy policy,int seed,int limit,int frozen) {
+        if (scenario.planningUnsupportedReason!=null && sourceAdapter==null)
+            throw new InvalidRequestException("source",scenario.planningUnsupportedReason+"; refusing to ignore unsupported facts");
+        MileageObligationGenerator.Projection projection=null;
+        if (snapshotId!=null) {
+            var saved=sourceSnapshots.findById(snapshotId).orElseThrow(() -> new NotFoundException("snapshot not found: "+snapshotId));
+            if (sourceAdapter!=null) projection=sourceAdapter.project(saved);
+            else {
+                var root=new ObjectMapper().readTree(saved.canonicalPayload());
+                if (!root.path("urgentWorkRequirements").isMissingNode() && !root.path("urgentWorkRequirements").isEmpty())
+                    throw new InvalidRequestException("source","urgentWorkRequirements need an F2 adapter; refusing to ignore the request");
+                projection=new SourceSnapshotE2Adapter().project(saved);
+            }
+        }
+        ScenarioSnapshot source=projection==null ? SyntheticSnapshot.of(scenario.id,scenario.trains,scenario.failures) : projection.snapshot();
+        var request=new PlannerRequest(frozen>0?"1.1":"1.0",scenario.id,source.snapshotHash(),policy,seed,limit,frozen);
+        return toPlan(scenario.id,source,planners.get(policy).plan(source,request),projection);
+    }
+
+    private void pollDatabase() {
+        try {
+            var available=database.claim(workerId); if (available.isEmpty()) return;
+            var claim=available.get(); var p=claim.parameters();
+            var heartbeat=heartbeats.scheduleWithFixedDelay(() -> {
+                try { database.heartbeat(claim.job().id,workerId); }
+                catch (RuntimeException e) { org.slf4j.LoggerFactory.getLogger(PlanningService.class).warn("Planning lease heartbeat failed",e); }
+            },10,10,TimeUnit.SECONDS);
+            try {
+                var plan=calculate(claim.scenario(),p.snapshotId(),parsePolicy(p.policy()),p.seed(),p.timeLimitSec(),p.frozenMinute());
+                database.complete(claim,plan);
+            } catch (Exception | LinkageError e) {
+                String code=e instanceof InvalidRequestException || e instanceof IllegalArgumentException ? "UNSUPPORTED_SOURCE_FACTS" : "PLANNING_FAILED";
+                database.fail(claim,code,e.getClass().getSimpleName()+": "+e.getMessage());
+            } finally { heartbeat.cancel(false); }
+        } catch (RuntimeException e) {
+            org.slf4j.LoggerFactory.getLogger(PlanningService.class).error("Durable planning queue poll failed",e);
+        }
+    }
+
+    private void saveScenario(Store.Scenario scenario) {
+        if (database!=null) database.saveScenario(scenario); else store.scenarios.put(scenario.id,scenario);
+    }
+    private Store.Scenario scenario(UUID id) {
+        return database!=null ? database.scenario(id) : require(store.scenarios,id,"scenario");
+    }
+    private Store.Plan plan(UUID id) {
+        return database!=null ? database.plan(id) : require(store.plans,id,"plan");
+    }
+    private static String currentActor() {
+        var auth=org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        return auth==null ? "system" : auth.getName();
     }
 
     private Store.Plan toPlan(UUID scenarioId, ScenarioSnapshot snapshot, PlannerResult result,
@@ -275,24 +364,42 @@ public class PlanningService {
     }
 
     public Dto.JobStatus getJob(UUID id) {
+        if (database!=null) return toJobStatus(database.job(id));
         return toJobStatus(require(store.jobs, id, "job"));
     }
 
     public Dto.Plan getPlan(UUID id) {
-        return toPlanDto(require(store.plans, id, "plan"));
+        return toPlanDto(plan(id));
     }
 
     public Dto.PlanCalendar getCalendar(UUID id) {
-        return require(store.plans, id, "plan").calendar;
+        var p=plan(id); var c=p.calendar;
+        if (c==null || database==null || sourceVersions.findVersion(p.scenarioId).isEmpty()) return c;
+        // Calendar comparisons and UI request routes use a stable root, while the plan retains its exact source revision.
+        UUID root=sourceVersions.version(p.scenarioId).rootId();
+        return new Dto.PlanCalendar(root,c.snapshotHash(),c.provenance(),c.policy(),c.solverStatus(),c.validationStatus(),
+                c.independentlyValidated(),c.horizonStart(),c.horizonEnd(),c.trains(),c.resources(),c.events());
     }
 
     public Dto.Plan approve(UUID planId, Dto.ApproveRequest req, String actor) {
-        Store.Plan plan = require(store.plans, planId, "plan");
+        if (req==null || req.expectedVersion()<0) throw new InvalidRequestException("expectedVersion","must be nonnegative");
+        if (database!=null) return toPlanDto(database.approve(planId,req.expectedVersion(),actor,req.comment(),this::validateApproval));
+        Store.Plan plan = plan(planId);
         // Serialized so two concurrent approvals can't both pass the version check.
         synchronized (plan) {
             if (plan.version != req.expectedVersion()) {
                 throw new VersionConflictException(plan.version);
             }
+            validateApproval(plan);
+            plan.approvedBy = actor;
+            plan.status = "APPROVED";
+            plan.version += 1;
+            store.latestApprovedPlanId=plan.id;
+            return toPlanDto(plan);
+        }
+    }
+
+    private void validateApproval(Store.Plan plan) {
             if (!"PASS".equals(plan.validationStatus)
                     || (!"OPTIMAL".equals(plan.solverStatus) && !"FEASIBLE".equals(plan.solverStatus))) {
                 throw new NotApprovableException("independent D2 validation must pass and solver must be feasible");
@@ -318,15 +425,10 @@ public class PlanningService {
             } catch (RuntimeException e) {
                 throw new NotApprovableException("plan events cannot be matched to the D2 report");
             }
-            plan.approvedBy = actor;
-            plan.status = "APPROVED";
-            plan.version += 1;
-            return toPlanDto(plan);
-        }
     }
 
     public String exportCsv(UUID planId) {
-        Store.Plan plan = require(store.plans, planId, "plan");
+        Store.Plan plan = plan(planId);
         StringBuilder csv = new StringBuilder("trainId,kind,startAt,endAt\n");
         for (Dto.PlanEvent e : plan.events) {
             csv.append(e.trainId()).append(',').append(e.kind()).append(',')
@@ -336,7 +438,7 @@ public class PlanningService {
     }
 
     public UUID newScenarioVersion(UUID scenarioId, Dto.ScenarioEvent event) {
-        Store.Scenario base = require(store.scenarios, scenarioId, "scenario");
+        Store.Scenario base = scenario(scenarioId);
         if (base.sourceSnapshotId != null) {
             throw new InvalidRequestException("scenario", "saved demo source does not support injected failures");
         }
@@ -349,7 +451,7 @@ public class PlanningService {
         copy.provenance = base.provenance + "+" + event.kind();
         copy.trains = base.trains;
         copy.failures = java.util.stream.Stream.concat(base.failures.stream(), java.util.stream.Stream.of(event.kind())).toList();
-        store.scenarios.put(copy.id, copy);
+        saveScenario(copy);
         return copy.id;
     }
 
@@ -363,13 +465,20 @@ public class PlanningService {
     }
 
     // frozenUntil is an offset timestamp in the API but a whole-minute offset from the horizon start in the solver.
-    private static int frozenMinute(Instant frozenUntil) {
+    private int frozenMinute(Instant frozenUntil,UUID sourceId) {
         if (frozenUntil == null) return 0;
-        long seconds = Duration.between(SyntheticSnapshot.HORIZON_START.toInstant(), frozenUntil).getSeconds();
+        Instant horizonStart=SyntheticSnapshot.HORIZON_START.toInstant();
+        long horizonMinutes=SyntheticSnapshot.HORIZON_MINUTES;
+        if (sourceId!=null) {
+            var source=new ObjectMapper().readTree(sourceSnapshots.findById(sourceId).orElseThrow().canonicalPayload()).path("scenario");
+            horizonStart=java.time.OffsetDateTime.parse(source.path("horizon_start").asText()).toInstant();
+            horizonMinutes=Duration.between(horizonStart,java.time.OffsetDateTime.parse(source.path("horizon_end").asText()).toInstant()).toMinutes();
+        }
+        long seconds = Duration.between(horizonStart, frozenUntil).getSeconds();
         if (frozenUntil.getNano() != 0 || seconds % 60 != 0) {
             throw new InvalidRequestException("frozenUntil", "must fall on a whole minute");
         }
-        if (seconds / 60 > SyntheticSnapshot.HORIZON_MINUTES) {
+        if (seconds / 60 > horizonMinutes) {
             throw new InvalidRequestException("frozenUntil", "is after the planning horizon");
         }
         return (int) Math.max(0, seconds / 60);
@@ -403,7 +512,11 @@ public class PlanningService {
     private static final Set<String> INCIDENT_KINDS = Set.of("TRIP_CHANGE", "URGENT_MAINTENANCE", "EQUIPMENT_DOWN");
 
     public Dto.CurrentPlan currentPlan() {
-        return new Dto.CurrentPlan(store.latestPlanId);
+        return currentPlan(null);
+    }
+
+    public Dto.CurrentPlan currentPlan(UUID scenarioId) {
+        return new Dto.CurrentPlan(database==null?store.latestApprovedPlanId:database.currentPlan(scenarioId));
     }
 
     public Dto.Incident reportIncident(Dto.IncidentRequest req, String actor) {
@@ -412,12 +525,12 @@ public class PlanningService {
         String text = req.description() == null ? "" : req.description().strip();
         if (text.isEmpty() || text.length() > 500) throw new InvalidRequestException("description", "must be 1..500 characters");
         var incident = new Dto.Incident(UUID.randomUUID(), req.train().strip(), req.kind(), text, actor, Instant.now());
-        store.incidents.add(0, incident);
+        if (database!=null) database.incident(incident); else store.incidents.add(0, incident);
         return incident;
     }
 
     public List<Dto.Incident> incidents() {
-        return List.copyOf(store.incidents);
+        return database==null ? List.copyOf(store.incidents) : database.incidents();
     }
 
     private static <K, V> V require(Map<K, V> map, K id, String what) {

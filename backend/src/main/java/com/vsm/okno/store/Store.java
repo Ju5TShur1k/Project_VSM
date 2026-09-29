@@ -24,6 +24,7 @@ public class Store {
     public final Map<String, String> jobIdempotencyContent = new ConcurrentHashMap<>();
     // Newest plan of any scenario: what the dispatcher sees (they don't run calculations).
     public volatile UUID latestPlanId;
+    public volatile UUID latestApprovedPlanId;
     public final List<Dto.Incident> incidents = new CopyOnWriteArrayList<>();
 
     public static class Scenario {

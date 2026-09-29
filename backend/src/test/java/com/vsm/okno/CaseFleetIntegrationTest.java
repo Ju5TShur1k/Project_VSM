@@ -31,6 +31,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -76,17 +78,49 @@ class CaseFleetIntegrationTest {
         var second = datasets.load(CaseDatasetService.Dataset.FULL43).response();
         assertEquals(first.source().snapshotId(), second.source().snapshotId());
         assertEquals(first.source().snapshotHash(), second.source().snapshotHash());
-        // An older source reading must not duplicate the train or replace its current starting mileage.
+        // Registered FULL43 sources cannot be edited, including when this suite is rerun.
+        // Use a rollback-only, unregistered fixture for the loader's history selection check.
+        UUID historyFixture = UUID.randomUUID();
+        jdbc.update("""
+                insert into vsm.scenario(id,name,rule_set_id,horizon_start,horizon_end,provenance)
+                select ?,name,rule_set_id,horizon_start,horizon_end,provenance from vsm.scenario where id=?
+                """,historyFixture,id);
+        jdbc.update("""
+                insert into vsm.train(scenario_id,id,external_id,status,location,source)
+                select ?,id,external_id,status,location,source from vsm.train where scenario_id=?
+                """,historyFixture,id);
+        jdbc.update("""
+                insert into vsm.odometer_reading(scenario_id,train_id,observed_at,odometer_km,source)
+                select ?,train_id,observed_at,odometer_km,source from vsm.odometer_reading where scenario_id=?
+                """,historyFixture,id);
+        jdbc.update("""
+                insert into vsm.fixed_trip(scenario_id,id,train_id,label,departure_at,arrival_at,distance_km,origin,destination,source)
+                select ?,id,train_id,label,departure_at,arrival_at,distance_km,origin,destination,source
+                from vsm.fixed_trip where scenario_id=?
+                """,historyFixture,id);
+        assertEquals(0,jdbc.queryForObject("select count(*) from vsm.scenario_version where scenario_id=?",
+                Integer.class,historyFixture));
+        // Only scenario-id selection is redirected; production train/mileage SQL executes unchanged.
+        JdbcTemplate historyJdbc = spy(new JdbcTemplate(jdbc.getDataSource()));
+        doReturn(historyFixture).when(historyJdbc).queryForObject("select md5(?)::uuid",UUID.class,
+                "vsm-case-v1:scenario:1");
+        CaseDatasetService historyDatasets = new CaseDatasetService(historyJdbc,snapshots);
+        var beforeHistory = historyDatasets.load(CaseDatasetService.Dataset.FULL43);
+        // An older source reading must not duplicate the train or replace its starting mileage.
         jdbc.update("""
                 insert into vsm.odometer_reading(scenario_id,train_id,observed_at,odometer_km,source)
                 select scenario_id,train_id,observed_at-interval '1 day',greatest(0,odometer_km-670),'MODELLED history test'
                 from vsm.odometer_reading where scenario_id=? and train_id=(
                     select id from vsm.train where scenario_id=? and external_id='CASE-01')
-                """,id,id);
-        var withHistory=datasets.load(CaseDatasetService.Dataset.FULL43);
+                """,historyFixture,historyFixture);
+        var withHistory=historyDatasets.load(CaseDatasetService.Dataset.FULL43);
         assertEquals(43,withHistory.response().trainCount());
+        assertEquals(1428,withHistory.response().tripCount());
+        assertEquals(beforeHistory.trains(),withHistory.trains());
         assertEquals(1000,withHistory.trains().stream().filter(t -> t.externalId().equals("CASE-01"))
                 .findFirst().orElseThrow().mileageKm());
+        assertNotEquals(beforeHistory.response().source().snapshotHash(),withHistory.response().source().snapshotHash());
+        assertEquals(first.source().snapshotHash(),datasets.load(CaseDatasetService.Dataset.FULL43).response().source().snapshotHash());
         assertThrows(IllegalArgumentException.class, () -> new SourceSnapshotE2Adapter().project(
                 snapshots.findById(first.source().snapshotId()).orElseThrow()));
     }

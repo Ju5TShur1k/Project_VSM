@@ -15,6 +15,28 @@ import java.util.UUID;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+    public ResponseEntity<Dto.ApiError> storage(org.springframework.dao.DataAccessException ex) {
+        String trace=UUID.randomUUID().toString();
+        org.slf4j.LoggerFactory.getLogger(ApiExceptionHandler.class).error("Database operation failed; traceId={}",trace,ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new Dto.ApiError("DATA_STORAGE_ERROR",
+                "Database operation failed; no partial source version was accepted",trace,List.of()));
+    }
+
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<Dto.ApiError> sourceConstraint(org.springframework.dao.DataIntegrityViolationException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(new Dto.ApiError("INVALID_REQUEST",
+                "Source facts violate an identifier, interval, overlap or unique-version constraint",UUID.randomUUID().toString(),
+                List.of(new Dto.ErrorDetail("change","Check IDs, trip overlaps, resource mappings and unique rule version"))));
+    }
+
+    @ExceptionHandler({org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<Dto.ApiError> malformed(Exception ex) {
+        return ResponseEntity.badRequest().body(new Dto.ApiError("MALFORMED_REQUEST","Request contains an invalid JSON value, ID or time",
+                UUID.randomUUID().toString(),List.of()));
+    }
+
     @ExceptionHandler(PlanningService.NotFoundException.class)
     public ResponseEntity<Dto.ApiError> notFound(PlanningService.NotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)

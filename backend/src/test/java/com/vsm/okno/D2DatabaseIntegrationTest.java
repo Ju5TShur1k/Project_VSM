@@ -55,6 +55,9 @@ class D2DatabaseIntegrationTest {
     @Autowired CaseDatasetService datasets;
     @Autowired SourceSnapshotRepository snapshots;
     @Autowired PlanningService service;
+    @Autowired com.vsm.okno.store.DatabasePlanningRepository persisted;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired com.vsm.okno.requests.SourceVersionService versions;
 
     @Test void actualD2AllowsOnlyTheValidatedModelPlanVersion() throws Exception {
         var api=new PlannerApi(mvc); var plan=goodPlan(api);
@@ -94,7 +97,7 @@ class D2DatabaseIntegrationTest {
         plan.events=original.subList(1,original.size()); assertRefused(api,plan);
         plan.events=original;
         String hash=plan.snapshotHash; plan.snapshotHash="wrong-source"; assertRefused(api,plan); plan.snapshotHash=hash;
-        plan.version=1; api.postJson("/api/v1/plans/"+plan.id+"/approve","{\"expectedVersion\":1}",422);
+        plan.version=1; corruptPersisted(plan); api.postJson("/api/v1/plans/"+plan.id+"/approve","{\"expectedVersion\":1}",422);
     }
 
     @Test void bothGeneratorAndResultOmittingTheSameTrainWorkAreRejectedByServer() throws Exception {
@@ -110,7 +113,10 @@ class D2DatabaseIntegrationTest {
         Store.Plan plan=ReflectionTestUtils.invokeMethod(service,"toPlan",broken.scenarioId(),broken,result,wrongProjection);
         assertNotNull(plan); assertEquals("FAILED",plan.validationStatus);
         assertTrue(plan.validations.stream().anyMatch(v -> v.code().equals("D2_PROJECTION_MISSING_WORK")));
-        store().plans.put(plan.id,plan); assertRefused(new PlannerApi(mvc),plan);
+        versions.register(response.source().snapshotId(),"tester"); persisted.scenario(plan.scenarioId);
+        jdbc.update("insert into vsm.plan(id,scenario_id,source_snapshot_id,snapshot_hash,version,status,payload) values (?,?,?,?,0,'DRAFT',?::jsonb)",
+                plan.id,plan.scenarioId,response.source().snapshotId(),plan.snapshotHash,new ObjectMapper().writeValueAsString(plan));
+        assertRefused(new PlannerApi(mvc),plan);
     }
 
     @Test void exportsReproducibleComparisonWithoutClaimingUnmeasuredBusinessBenefit() throws Exception {
@@ -151,11 +157,16 @@ class D2DatabaseIntegrationTest {
         var response=api.postJson("/api/v1/demo/case-source?dataset=E2_6","{}",201);
         var job=api.runJob(response.get("source").get("scenarioId").asText(),"d2-good-"+UUID.randomUUID());
         var dto=api.plan(job); assertEquals("PASS",dto.get("validationStatus").asText(),dto.toString());
-        return store().plans.get(UUID.fromString(dto.get("id").asText()));
+        return persisted.plan(UUID.fromString(dto.get("id").asText()));
     }
     private Store store() { return (Store)ReflectionTestUtils.getField(service,"store"); }
     private void assertRefused(PlannerApi api,Store.Plan plan) throws Exception {
+        corruptPersisted(plan);
         var response=api.postJson("/api/v1/plans/"+plan.id+"/approve","{\"expectedVersion\":0}",422);
         assertEquals("PLAN_NOT_APPROVABLE",response.get("code").asText()); assertEquals("DRAFT",plan.status);
+    }
+    private void corruptPersisted(Store.Plan plan) {
+        jdbc.update("update vsm.plan set payload=?::jsonb,version=?,snapshot_hash=? where id=?",
+                new ObjectMapper().writeValueAsString(plan),plan.version,plan.snapshotHash,plan.id);
     }
 }
