@@ -160,6 +160,33 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  /source-snapshots/{id}/e3-candidate-assessment:
+    post:
+      summary: Preview a full-fleet trip reassignment against one immutable source snapshot
+      description: Read-only assessment of trip identity, mileage obligations, reserve by city and cleaning gaps. It does not run the solver, create a plan or grant D2 PASS.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/E3CandidateInput' }
+      responses:
+        '200':
+          description: Candidate assessment, including blockers and unfinished operational obligations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/E3CandidateAssessment' }
+        '404':
+          description: Snapshot not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: Candidate or source violates a supported E3 rule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   /scenarios/{id}:
     get:
       summary: Get scenario snapshot
@@ -887,6 +914,78 @@ components:
           type: string
           enum: [BLOCKED_BY_FIXED_ASSIGNMENTS, NECESSARY_WINDOWS_PRESENT]
         d2Status: { type: string, const: NOT_PERFORMED }
+        blockers:
+          type: array
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string }
+              message: { type: string }
+    E3CandidateInput:
+      type: object
+      required: [frozenUntil, preparationMinutes, effectiveTrainByTrip]
+      properties:
+        frozenUntil: { type: string, format: date-time }
+        preparationMinutes: { type: integer, minimum: 0 }
+        effectiveTrainByTrip:
+          type: object
+          description: Map of fixed trip UUID to proposed effective train UUID; omitted trips keep their source assignment.
+          additionalProperties: { type: string, format: uuid }
+    E3CandidateAssessment:
+      type: object
+      required: [scenarioId, sourceSnapshotId, snapshotHash, tripCount, changedTripCount, mileageObligationCount, mileageStatus, solverStatus, d2Status, reserve, cleaning, blockers]
+      properties:
+        scenarioId: { type: string, format: uuid }
+        sourceSnapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        tripCount: { type: integer }
+        changedTripCount: { type: integer }
+        mileageObligationCount: { type: integer }
+        mileageStatus: { type: string, enum: [CHECKED, BLOCKED, FAILED] }
+        solverStatus: { type: string, const: NOT_RUN }
+        d2Status: { type: string, const: NOT_PERFORMED }
+        reserve:
+          type: object
+          required: [snapshotHash, mobilizedTrainCount, cities]
+          properties:
+            snapshotHash: { type: string }
+            mobilizedTrainCount: { type: integer }
+            cities:
+              type: array
+              items:
+                type: object
+                required: [name, sourceTarget, remaining, deficit]
+                properties:
+                  name: { type: string }
+                  sourceTarget: { type: integer }
+                  remaining: { type: integer }
+                  deficit: { type: integer }
+        cleaning:
+          type: object
+          required: [snapshotHash, coveredCount, missing, pendingAtHorizon]
+          properties:
+            snapshotHash: { type: string }
+            coveredCount: { type: integer }
+            missing:
+              type: array
+              items:
+                type: object
+                required: [trainId, fourthTripId, nextTripId, earliestStart, latestEnd]
+                properties:
+                  trainId: { type: string, format: uuid }
+                  fourthTripId: { type: string, format: uuid }
+                  nextTripId: { type: string, format: uuid }
+                  earliestStart: { type: string, format: date-time }
+                  latestEnd: { type: string, format: date-time }
+            pendingAtHorizon:
+              type: array
+              items:
+                type: object
+                required: [trainId, fourthTripId]
+                properties:
+                  trainId: { type: string, format: uuid }
+                  fourthTripId: { type: string, format: uuid }
         blockers:
           type: array
           items:

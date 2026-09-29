@@ -1,6 +1,7 @@
 package com.vsm.okno;
 
 import com.vsm.okno.data.CaseDatasetService;
+import com.vsm.okno.data.E3AssessmentService;
 import com.vsm.okno.data.SourceSnapshotE2Adapter;
 import com.vsm.okno.data.SourceSnapshotE3Adapter;
 import com.vsm.okno.data.SourceSnapshotRepository;
@@ -18,6 +19,7 @@ import com.vsm.okno.validation.E3MileageObligationAudit;
 import com.vsm.okno.validation.E3ReserveCoverageAssessment;
 import com.vsm.okno.validation.E3CleaningCoverageAssessment;
 import com.vsm.okno.validation.IndependentIntervalAudit;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -42,6 +45,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Dedicated test DB only: persisted model fleet, solver, raw-source cross-check and HTTP approval gate. */
@@ -242,7 +247,7 @@ class CaseFleetIntegrationTest {
 
     @Test
     @Transactional
-    void documentedReserveCanTakeTurnWithExplicitCityDeficit() {
+    void documentedReserveCanTakeTurnWithExplicitCityDeficit() throws Exception {
         var loaded = datasets.load(CaseDatasetService.Dataset.FULL43).response();
         UUID scenario = loaded.source().scenarioId();
         var saved = snapshots.findById(loaded.source().snapshotId()).orElseThrow();
@@ -272,6 +277,18 @@ class CaseFleetIntegrationTest {
         assertEquals(330, changedCleaning.coveredCount());
         assertEquals(10, changedCleaning.missing().size());
         assertTrue(changedCleaning.missing().stream().allMatch(item -> reserveTrain.equals(item.trainId())));
+        String body = new ObjectMapper().writeValueAsString(
+                new E3AssessmentService.CandidateInput(start, 55, changed));
+        String response = mvc.perform(post("/api/v1/source-snapshots/{id}/e3-candidate-assessment", saved.id())
+                        .with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        var preview = new ObjectMapper().readTree(response);
+        assertEquals(saved.snapshotHash(), preview.path("snapshotHash").asText());
+        assertEquals(1428, preview.path("tripCount").asInt());
+        assertEquals(42, preview.path("changedTripCount").asInt());
+        assertEquals("NOT_RUN", preview.path("solverStatus").asText());
+        assertEquals("NOT_PERFORMED", preview.path("d2Status").asText());
+        assertEquals(10, preview.path("cleaning").path("missing").size());
     }
 
     @Test

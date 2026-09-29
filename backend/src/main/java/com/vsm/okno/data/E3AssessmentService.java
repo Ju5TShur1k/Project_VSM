@@ -1,9 +1,14 @@
 package com.vsm.okno.data;
 
 import com.vsm.okno.planning.E3FeasibilityAudit;
+import com.vsm.okno.planning.E3TripAssignmentLedger;
+import com.vsm.okno.planning.E3MileageObligationRecalculator;
 import com.vsm.okno.planning.MileageObligationGenerator;
 import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.service.PlanningService;
+import com.vsm.okno.validation.E3CleaningCoverageAssessment;
+import com.vsm.okno.validation.E3MileageObligationAudit;
+import com.vsm.okno.validation.E3ReserveCoverageAssessment;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -15,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -27,6 +33,14 @@ public final class E3AssessmentService {
                              int eligibleTrainCount, int peakConcurrentTrips, int unassignedEligibleTrainCount,
                              String fixedAssignmentStatus, String d2Status,
                              List<PlannerResult.Diagnostic> blockers) {}
+    public record CandidateInput(OffsetDateTime frozenUntil, int preparationMinutes,
+                                 Map<UUID, UUID> effectiveTrainByTrip) {}
+    public record CandidateAssessment(UUID scenarioId, UUID sourceSnapshotId, String snapshotHash,
+                                      int tripCount, int changedTripCount, int mileageObligationCount,
+                                      String mileageStatus, String solverStatus, String d2Status,
+                                      E3ReserveCoverageAssessment.Report reserve,
+                                      E3CleaningCoverageAssessment.Report cleaning,
+                                      List<PlannerResult.Diagnostic> blockers) {}
     private record Edge(Instant at, int change) {}
 
     private final SourceSnapshotRepository snapshots;
@@ -70,5 +84,42 @@ public final class E3AssessmentService {
                 eligibleCount, peak, eligible.size(),
                 blockers.isEmpty() ? "NECESSARY_WINDOWS_PRESENT" : "BLOCKED_BY_FIXED_ASSIGNMENTS",
                 "NOT_PERFORMED", blockers);
+    }
+
+    /** Read-only candidate preview; it never creates a plan or grants D2 PASS. */
+    public CandidateAssessment assessCandidate(UUID snapshotId, CandidateInput input) {
+        if (input == null || input.frozenUntil() == null || input.effectiveTrainByTrip() == null)
+            throw new PlanningService.InvalidRequestException("candidate", "freeze, preparation and assignments are required");
+        var saved = snapshots.findById(snapshotId)
+                .orElseThrow(() -> new PlanningService.NotFoundException("snapshot not found: " + snapshotId));
+        try {
+            new SourceSnapshotE3Adapter().project(saved);
+            var assignment = new E3TripAssignmentLedger().evaluate(saved, input.effectiveTrainByTrip(),
+                    input.frozenUntil(), input.preparationMinutes());
+            var reserve = new E3ReserveCoverageAssessment().assess(saved, assignment,
+                    input.frozenUntil(), input.preparationMinutes());
+            var cleaning = new E3CleaningCoverageAssessment().assess(saved, assignment,
+                    input.frozenUntil(), input.preparationMinutes());
+            List<PlannerResult.Diagnostic> blockers = new ArrayList<>();
+            int obligations = 0;
+            String mileageStatus = "CHECKED";
+            try {
+                var recalculated = new E3MileageObligationRecalculator().recalculate(saved, assignment,
+                        input.frozenUntil(), input.preparationMinutes());
+                obligations = recalculated.obligations().size();
+                for (var issue : new E3MileageObligationAudit().check(saved, assignment, recalculated,
+                        input.frozenUntil(), input.preparationMinutes()))
+                    blockers.add(new PlannerResult.Diagnostic(issue.code(), issue.message()));
+                if (!blockers.isEmpty()) mileageStatus = "FAILED";
+            } catch (IllegalArgumentException error) {
+                mileageStatus = "BLOCKED";
+                blockers.add(new PlannerResult.Diagnostic("E3_MILEAGE_PROJECTION_BLOCKED", error.getMessage()));
+            }
+            return new CandidateAssessment(saved.scenarioId(), saved.id(), saved.snapshotHash(),
+                    assignment.trips().size(), assignment.changedTripCount(), obligations, mileageStatus,
+                    "NOT_RUN", "NOT_PERFORMED", reserve, cleaning, List.copyOf(blockers));
+        } catch (IllegalArgumentException error) {
+            throw new PlanningService.InvalidRequestException("candidate", error.getMessage());
+        }
     }
 }
