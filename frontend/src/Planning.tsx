@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Conflict, Plan, ru, Train } from './api'
 import PlanningCalendar from './calendar/PlanningCalendar'
+import { Icon } from './Icons'
 
 // Only these solver outcomes yield a plan that may be approved (ТЗ: UNKNOWN /
 // INFEASIBLE / MODEL_INVALID never do).
@@ -82,7 +83,7 @@ export default function Planning({
 
   return (
     <section className="card pad">
-      <h2>План ТО</h2>
+      <h2><Icon name="plan" />План ТО</h2>
 
       <button onClick={() => start.mutate()} disabled={running}>
         {running ? 'Расчёт…' : p ? 'Пересчитать' : 'Рассчитать план'}

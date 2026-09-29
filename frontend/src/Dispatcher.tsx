@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, Incident, ru } from './api'
 import PlanningCalendar from './calendar/PlanningCalendar'
+import { Icon } from './Icons'
 
 const KINDS: Incident['kind'][] = ['TRIP_CHANGE', 'URGENT_MAINTENANCE', 'EQUIPMENT_DOWN']
 
@@ -12,7 +13,7 @@ const time = (iso: string) =>
 // Polled so a report shows up on the planner's screen without a reload.
 export function IncidentLog() {
   const incidents = useQuery({ queryKey: ['incidents'], queryFn: api.incidents, refetchInterval: 10_000 })
-  if (!incidents.data?.length) return <p className="muted">Сообщений нет.</p>
+  if (!incidents.data?.length) return <p className="muted empty">Сообщений нет.</p>
   return (
     <table>
       <thead>
@@ -63,7 +64,7 @@ export default function Dispatcher() {
   return (
     <>
       <section className="card pad">
-        <h2>Сообщить о событии</h2>
+        <h2><Icon name="alert" />Сообщить о событии</h2>
         <form
           className="row"
           onSubmit={(e) => {
@@ -93,12 +94,12 @@ export default function Dispatcher() {
       </section>
 
       <section className="card">
-        <h2 className="pad-h">Журнал сообщений</h2>
+        <h2 className="pad-h"><Icon name="bell" />Журнал сообщений</h2>
         <IncidentLog />
       </section>
 
       <section className="card pad">
-        <h2>Текущий план</h2>
+        <h2><Icon name="plan" />Текущий план</h2>
         {!planId && <p className="muted">План ещё не рассчитан.</p>}
         {plan.data && (
           <p>

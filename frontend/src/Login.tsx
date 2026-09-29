@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
+import { Logo } from './Icons'
 
 export default function Login() {
   const qc = useQueryClient()
@@ -12,6 +13,7 @@ export default function Login() {
     <>
       <header className="top">
         <div>
+          <Logo />
           <strong>ОКНО ВСМ</strong>
           <span>Планирование ТО парка ЭВС360</span>
         </div>
