@@ -22,6 +22,7 @@ public final class E3TripAssignmentAudit {
     private record Trip(UUID id, UUID plannedTrain, String label, String origin, String destination,
                         OffsetDateTime departure, OffsetDateTime arrival, long distance) {}
     private record Busy(UUID train, OffsetDateTime start, OffsetDateTime end, String kind) {}
+    private record Presence(UUID train, String city, OffsetDateTime start, OffsetDateTime end) {}
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -86,11 +87,21 @@ public final class E3TripAssignmentAudit {
                 require(expectedTrips.putIfAbsent(id, trip) == null, "D2_E3_TRIP_SOURCE", "Повтор ID рейса в источнике");
             }
             List<Busy> commitments = new ArrayList<>();
+            List<Busy> reservations = new ArrayList<>();
             for (JsonNode row : rows(root, "trainOccupancy")) {
-                if ("RESERVE".equals(text(row, "kind"))) continue;
-                commitments.add(new Busy(uuid(row, "train_id"), time(row, "starts_at"),
-                        time(row, "ends_at"), text(row, "kind")));
+                Busy interval = new Busy(uuid(row, "train_id"), time(row, "starts_at"),
+                        time(row, "ends_at"), text(row, "kind"));
+                if ("RESERVE".equals(interval.kind())) {
+                    if (Set.of("SYNTHETIC", "CONFIRMED").contains(text(row, "confirmation_status")))
+                        reservations.add(interval);
+                } else commitments.add(interval);
             }
+            List<Presence> presence = new ArrayList<>();
+            JsonNode sourcePresence = root.path("trainPresence");
+            if (sourcePresence.isArray()) for (JsonNode row : sourcePresence)
+                if (Set.of("SYNTHETIC", "CONFIRMED").contains(text(row, "confirmation_status")))
+                    presence.add(new Presence(uuid(row, "train_id"), text(row, "location"),
+                            time(row, "starts_at"), time(row, "ends_at")));
             for (JsonNode row : rows(root, "frozenWork")) commitments.add(new Busy(
                     uuid(row, "train_id"), time(row, "starts_at"), time(row, "ends_at"), "FROZEN"));
 
@@ -112,7 +123,7 @@ public final class E3TripAssignmentAudit {
                         || raw.distance() != actual.distanceKm())
                     add(issues, "D2_E3_TRIP_CHANGED", "Исходный рейс изменён в назначениях", actual.id());
                 Train train = trains.get(actual.effectiveTrainId());
-                if (train == null || !Set.of("AVAILABLE", "IN_SERVICE").contains(train.status()))
+                if (train == null || !Set.of("AVAILABLE", "IN_SERVICE", "RESERVE").contains(train.status()))
                     add(issues, "D2_E3_TRAIN_NOT_RELEASED", "Назначен недопущенный состав", actual.id());
                 if (!actual.effectiveTrainId().equals(raw.plannedTrain())) {
                     changes++;
@@ -138,6 +149,17 @@ public final class E3TripAssignmentAudit {
                 var assigned = new ArrayList<>(byTrain.getOrDefault(id, List.of()));
                 assigned.sort(Comparator.comparing(E3TripAssignmentLedger.AssignedTrip::departureAt)
                         .thenComparing(E3TripAssignmentLedger.AssignedTrip::id));
+                if ("RESERVE".equals(raw.status()) && !assigned.isEmpty()) {
+                    OffsetDateTime first = assigned.getFirst().departureAt();
+                    if (!covered(horizonStart, first, reservations.stream()
+                            .filter(row -> id.equals(row.train()))
+                            .map(row -> new OffsetDateTime[]{row.start(), row.end()}).toList())
+                            || !covered(horizonStart, first, presence.stream()
+                            .filter(row -> id.equals(row.train()) && raw.city().equals(row.city()))
+                            .map(row -> new OffsetDateTime[]{row.start(), row.end()}).toList()))
+                        add(issues, "D2_E3_RESERVE_EVIDENCE",
+                                "Нет подтверждённой доступности резервного состава в нужном городе", id);
+                }
                 for (var trip : assigned) {
                     if (!city.equals(trip.origin()))
                         add(issues, "D2_E3_ROUTE", "Состав находится в другом городе", trip.id());
@@ -173,6 +195,18 @@ public final class E3TripAssignmentAudit {
 
     private static boolean overlaps(OffsetDateTime a, OffsetDateTime b, OffsetDateTime c, OffsetDateTime d) {
         return a.isBefore(d) && c.isBefore(b);
+    }
+    private static boolean covered(OffsetDateTime from, OffsetDateTime to,
+                                   List<OffsetDateTime[]> intervals) {
+        if (!from.isBefore(to)) return false;
+        OffsetDateTime cursor = from;
+        for (OffsetDateTime[] interval : intervals.stream()
+                .sorted(Comparator.comparing(row -> row[0])).toList()) {
+            if (interval[0].isAfter(cursor)) return false;
+            if (interval[1].isAfter(cursor)) cursor = interval[1];
+            if (!cursor.isBefore(to)) return true;
+        }
+        return false;
     }
     private static JsonNode rows(JsonNode root, String field) {
         JsonNode value = root.path(field);

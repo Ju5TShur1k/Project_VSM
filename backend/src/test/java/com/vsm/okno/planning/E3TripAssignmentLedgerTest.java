@@ -6,6 +6,8 @@ import com.vsm.okno.data.SourceSnapshotE3Adapter;
 import com.vsm.okno.validation.PlanFingerprint;
 import com.vsm.okno.validation.E3TripAssignmentAudit;
 import com.vsm.okno.validation.E3MileageObligationAudit;
+import com.vsm.okno.validation.E3ReserveCoverageAssessment;
+import com.vsm.okno.validation.E3CleaningCoverageAssessment;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -126,9 +128,78 @@ class E3TripAssignmentLedgerTest {
                 .contains("overlaps outage"));
     }
 
+    @Test
+    void mobilizingDocumentedReserveIsAllowedAndCityDeficitIsVisible() {
+        var base = source("SPB_DEPOT", "[]");
+        String status = base.canonicalPayload().replace(
+                "\"external_id\":\"B\",\"location\":\"SPB_DEPOT\",\"status\":\"AVAILABLE\"",
+                "\"external_id\":\"B\",\"location\":\"SPB_DEPOT\",\"status\":\"RESERVE\"");
+        var unsupported = withPayload(base, status);
+        var ledger = new E3TripAssignmentLedger();
+        assertThrows(IllegalArgumentException.class,
+                () -> ledger.evaluate(unsupported, Map.of(TRIP, B), START, 55));
+        String occupied = "\"trainOccupancy\":[{\"train_id\":\"" + B + "\","
+                + "\"kind\":\"RESERVE\",\"confirmation_status\":\"SYNTHETIC\","
+                + "\"starts_at\":\"2031-07-01T00:00:00+03:00\","
+                + "\"ends_at\":\"2031-07-02T00:00:00+03:00\"}]";
+        String present = "\"trainPresence\":[{\"train_id\":\"" + B + "\","
+                + "\"location\":\"SPB_DEPOT\",\"confirmation_status\":\"SYNTHETIC\","
+                + "\"starts_at\":\"2031-07-01T00:00:00+03:00\","
+                + "\"ends_at\":\"2031-07-02T00:00:00+03:00\"}]";
+        var documented = withPayload(base, status.replace("\"trainOccupancy\":[]", occupied)
+                .replace("\"frozenWork\":[]", "\"frozenWork\":[]," + present));
+        var unchanged = ledger.evaluate(documented, Map.of(), START, 55);
+        var moved = ledger.evaluate(documented, Map.of(TRIP, B), START, 55);
+        assertTrue(new E3TripAssignmentAudit().check(documented, moved, START, 55).isEmpty());
+        var assessment = new E3ReserveCoverageAssessment();
+        assertEquals(0, assessment.assess(documented, unchanged, START, 55).mobilizedTrainCount());
+        var report = assessment.assess(documented, moved, START, 55);
+        assertEquals(1, report.mobilizedTrainCount());
+        assertEquals(new E3ReserveCoverageAssessment.City("SPB_DEPOT", 1, 0, 1),
+                report.cities().getFirst());
+    }
+
+    @Test
+    void reassignmentMakesOldTrainCleaningSlotInsufficientForTheNewTrain() {
+        var base = source("SPB_DEPOT", "[]");
+        UUID second = id("trip-two");
+        String trip = "{\"id\":\"" + second + "\",\"train_id\":\"" + A + "\","
+                + "\"label\":\"R2\",\"origin\":\"MOSCOW\",\"destination\":\"SPB_DEPOT\","
+                + "\"departure_at\":\"2031-07-01T12:00:00+03:00\","
+                + "\"arrival_at\":\"2031-07-01T14:00:00+03:00\",\"distance_km\":670}";
+        String counters = "\"cleaningCounters\":["
+                + "{\"train_id\":\"" + A + "\",\"observed_at\":\"2031-07-01T00:00:00+03:00\","
+                + "\"completed_trips_since_cleaning\":3,\"confirmation_status\":\"SYNTHETIC\"},"
+                + "{\"train_id\":\"" + B + "\",\"observed_at\":\"2031-07-01T00:00:00+03:00\","
+                + "\"completed_trips_since_cleaning\":3,\"confirmation_status\":\"SYNTHETIC\"}]";
+        var turns = addFact(withPayload(base, base.canonicalPayload().replace(
+                "\"distance_km\":670}]", "\"distance_km\":670}," + trip + "]")), counters);
+        var ledger = new E3TripAssignmentLedger();
+        var original = ledger.evaluate(turns, Map.of(), START, 55);
+        var audit = new E3CleaningCoverageAssessment();
+        assertEquals(1, audit.assess(turns, original, START, 55).missing().size());
+        String cleaning = "\"trainOccupancy\":[{\"train_id\":\"" + A + "\","
+                + "\"kind\":\"CLEANING\",\"confirmation_status\":\"SYNTHETIC\","
+                + "\"starts_at\":\"2031-07-01T08:30:00+03:00\","
+                + "\"ends_at\":\"2031-07-01T10:30:00+03:00\"}]";
+        var fixedCleaning = withPayload(turns, turns.canonicalPayload().replace(
+                "\"trainOccupancy\":[]", cleaning));
+        assertEquals(1, audit.assess(fixedCleaning,
+                ledger.evaluate(fixedCleaning, Map.of(), START, 55), START, 55).coveredCount());
+        var moved = ledger.evaluate(fixedCleaning, Map.of(TRIP, B, second, B), START, 55);
+        assertTrue(new E3TripAssignmentAudit().check(fixedCleaning, moved, START, 55).isEmpty());
+        var after = audit.assess(fixedCleaning, moved, START, 55);
+        assertEquals(0, after.coveredCount());
+        assertEquals(B, after.missing().getFirst().trainId());
+    }
+
     private static SourceSnapshot addFact(SourceSnapshot original, String property) {
         String payload = original.canonicalPayload().stripTrailing();
         payload = payload.substring(0, payload.length() - 1) + "," + property + "}";
+        return withPayload(original, payload);
+    }
+
+    private static SourceSnapshot withPayload(SourceSnapshot original, String payload) {
         return new SourceSnapshot(original.id(), original.scenarioId(), original.schemaVersion(),
                 original.canonicalization(), PlanFingerprint.sha256(payload), payload,
                 original.capturedAt());

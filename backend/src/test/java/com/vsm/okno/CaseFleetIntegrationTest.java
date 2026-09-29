@@ -15,6 +15,8 @@ import com.vsm.okno.planning.ScenarioSnapshot;
 import com.vsm.okno.validation.E3SourcePlanAudit;
 import com.vsm.okno.validation.E3TripAssignmentAudit;
 import com.vsm.okno.validation.E3MileageObligationAudit;
+import com.vsm.okno.validation.E3ReserveCoverageAssessment;
+import com.vsm.okno.validation.E3CleaningCoverageAssessment;
 import com.vsm.okno.validation.IndependentIntervalAudit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -236,6 +238,40 @@ class CaseFleetIntegrationTest {
                 .filter(t -> t.id().equals(three.getFirst())).findFirst().orElseThrow().trainId());
         assertThrows(IllegalArgumentException.class,
                 () -> ledger.evaluate(saved, Map.of(three.getFirst(), depotTrain), cutoff, 55));
+    }
+
+    @Test
+    @Transactional
+    void documentedReserveCanTakeTurnWithExplicitCityDeficit() {
+        var loaded = datasets.load(CaseDatasetService.Dataset.FULL43).response();
+        UUID scenario = loaded.source().scenarioId();
+        var saved = snapshots.findById(loaded.source().snapshotId()).orElseThrow();
+        UUID originalTrain = jdbc.queryForObject("select id from vsm.train where scenario_id=? and external_id='CASE-01'",
+                UUID.class, scenario);
+        UUID reserveTrain = jdbc.queryForObject("select id from vsm.train where scenario_id=? and external_id='CASE-42'",
+                UUID.class, scenario);
+        var start = java.time.OffsetDateTime.parse("2031-07-01T00:00:00+03:00");
+        var ledger = new E3TripAssignmentLedger();
+        var original = ledger.evaluate(saved, Map.of(), start, 55);
+        var cleaningAudit = new E3CleaningCoverageAssessment();
+        var initialCleaning = cleaningAudit.assess(saved, original, start, 55);
+        assertEquals(340, initialCleaning.coveredCount());
+        assertTrue(initialCleaning.missing().isEmpty());
+        Map<UUID, UUID> changed = original.trips().stream()
+                .filter(trip -> originalTrain.equals(trip.plannedTrainId()))
+                .collect(Collectors.toMap(E3TripAssignmentLedger.AssignedTrip::id,
+                        ignored -> reserveTrain));
+        assertEquals(42, changed.size());
+        var candidate = ledger.evaluate(saved, changed, start, 55);
+        assertTrue(new E3TripAssignmentAudit().check(saved, candidate, start, 55).isEmpty());
+        var reserve = new E3ReserveCoverageAssessment().assess(saved, candidate, start, 55);
+        assertEquals(1, reserve.mobilizedTrainCount());
+        assertTrue(reserve.cities().contains(new E3ReserveCoverageAssessment.City("SPB_DEPOT", 2, 1, 1)));
+        assertTrue(reserve.cities().contains(new E3ReserveCoverageAssessment.City("MOSCOW", 2, 2, 0)));
+        var changedCleaning = cleaningAudit.assess(saved, candidate, start, 55);
+        assertEquals(330, changedCleaning.coveredCount());
+        assertEquals(10, changedCleaning.missing().size());
+        assertTrue(changedCleaning.missing().stream().allMatch(item -> reserveTrain.equals(item.trainId())));
     }
 
     @Test

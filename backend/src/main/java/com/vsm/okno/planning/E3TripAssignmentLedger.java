@@ -41,6 +41,7 @@ public final class E3TripAssignmentLedger {
     }
     private record TrainSource(UUID id, String name, String location, String status, long initialKm) {}
     private record Busy(UUID trainId, OffsetDateTime from, OffsetDateTime to, String kind) {}
+    private record Presence(UUID trainId, String city, OffsetDateTime from, OffsetDateTime to) {}
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -89,11 +90,23 @@ public final class E3TripAssignmentLedger {
         }
 
         List<Busy> busy = new ArrayList<>();
+        List<Busy> reserved = new ArrayList<>();
         for (JsonNode row : rows(root, "trainOccupancy")) {
-            if ("RESERVE".equals(text(row, "kind"))) continue;
-            busy.add(new Busy(uuid(row, "train_id"), time(row, "starts_at"),
-                    time(row, "ends_at"), text(row, "kind")));
+            Busy interval = new Busy(uuid(row, "train_id"), time(row, "starts_at"),
+                    time(row, "ends_at"), text(row, "kind"));
+            if ("RESERVE".equals(interval.kind())) {
+                if (!Set.of("SYNTHETIC", "CONFIRMED").contains(text(row, "confirmation_status")))
+                    throw new IllegalArgumentException("unconfirmed reserve occupancy");
+                reserved.add(interval);
+            }
+            else busy.add(interval);
         }
+        List<Presence> presence = new ArrayList<>();
+        JsonNode sourcePresence = root.path("trainPresence");
+        if (sourcePresence.isArray()) for (JsonNode row : sourcePresence)
+            if (Set.of("SYNTHETIC", "CONFIRMED").contains(text(row, "confirmation_status")))
+                presence.add(new Presence(uuid(row, "train_id"), text(row, "location"),
+                        time(row, "starts_at"), time(row, "ends_at")));
         for (JsonNode row : rows(root, "frozenWork")) busy.add(new Busy(uuid(row, "train_id"),
                 time(row, "starts_at"), time(row, "ends_at"), "FROZEN"));
 
@@ -107,7 +120,7 @@ public final class E3TripAssignmentLedger {
                 throw new IllegalArgumentException("duplicate trip or unknown planned train " + id);
             UUID effective = requested.getOrDefault(id, planned);
             TrainSource train = trains.get(effective);
-            if (train == null || !Set.of("AVAILABLE", "IN_SERVICE").contains(train.status()))
+            if (train == null || !Set.of("AVAILABLE", "IN_SERVICE", "RESERVE").contains(train.status()))
                 throw new IllegalArgumentException("effective train has no release/availability evidence for trip " + id);
             OffsetDateTime departure = time(row, "departure_at"), arrival = time(row, "arrival_at");
             if (departure.isBefore(start) || arrival.isAfter(end) || !departure.isBefore(arrival))
@@ -128,6 +141,20 @@ public final class E3TripAssignmentLedger {
 
         Map<UUID, List<AssignedTrip>> byTrain = new HashMap<>();
         for (AssignedTrip trip : trips) byTrain.computeIfAbsent(trip.effectiveTrainId(), ignored -> new ArrayList<>()).add(trip);
+        for (TrainSource train : trains.values()) {
+            if (!"RESERVE".equals(train.status())) continue;
+            List<AssignedTrip> assigned = byTrain.getOrDefault(train.id(), List.of());
+            if (assigned.isEmpty()) continue;
+            OffsetDateTime firstDeparture = assigned.getFirst().departureAt();
+            if (!covered(start, firstDeparture, reserved.stream()
+                    .filter(row -> train.id().equals(row.trainId()))
+                    .map(row -> new OffsetDateTime[]{row.from(), row.to()}).toList())
+                    || !covered(start, firstDeparture, presence.stream()
+                    .filter(row -> train.id().equals(row.trainId()) && train.location().equals(row.city()))
+                    .map(row -> new OffsetDateTime[]{row.from(), row.to()}).toList()))
+                throw new IllegalArgumentException("reserve train has no confirmed city/availability before trip "
+                        + assigned.getFirst().id());
+        }
         Map<UUID, TrainTrace> traces = new HashMap<>();
         for (TrainSource train : trains.values()) {
             String location = train.location();
@@ -162,6 +189,18 @@ public final class E3TripAssignmentLedger {
 
     private static boolean overlaps(OffsetDateTime a, OffsetDateTime b, OffsetDateTime c, OffsetDateTime d) {
         return a.isBefore(d) && c.isBefore(b);
+    }
+    private static boolean covered(OffsetDateTime from, OffsetDateTime to,
+                                   List<OffsetDateTime[]> intervals) {
+        if (!from.isBefore(to)) return false;
+        OffsetDateTime cursor = from;
+        for (OffsetDateTime[] interval : intervals.stream()
+                .sorted(Comparator.comparing(row -> row[0])).toList()) {
+            if (interval[0].isAfter(cursor)) return false;
+            if (interval[1].isAfter(cursor)) cursor = interval[1];
+            if (!cursor.isBefore(to)) return true;
+        }
+        return false;
     }
     private static JsonNode rows(JsonNode root, String field) {
         JsonNode value = root.path(field);
