@@ -7,7 +7,7 @@
 Инструкция пользователя (роли, экраны, сценарии показа): [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 Основной демонстрационный путь и критерий изменения рейса: [docs/F2_defense_demo.md](docs/F2_defense_demo.md).
 Схема D1 и работа с PostgreSQL: [database/README.md](database/README.md).
-Для БД на порту 5433: `docker compose -f docker-compose.yml -f docker-compose.database.yml up -d --build`.
+PostgreSQL проекта по умолчанию доступен на `127.0.0.1:5433`, чтобы не конфликтовать с другой локальной БД на `5432`. При необходимости можно переопределить внешний порт через `DB_PORT`.
 
 ```bash
 docker compose up --build
