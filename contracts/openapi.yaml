@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: OKNO VSM API
-  version: "0.1.0"
+  version: "0.2.0"
 servers:
   - url: /api/v1
 # Everything except /actuator/health requires a session (cookie JSESSIONID from
@@ -99,7 +99,7 @@ paths:
 
   /demo/scenarios/{id}/r1-arrival:
     post:
-      summary: Change source trip R1 arrival and capture a new immutable snapshot
+      summary: Change R1 arrival by creating a new scenario version and immutable snapshot
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody:
         required: true
@@ -318,7 +318,12 @@ paths:
 
   /current-plan:
     get:
-      summary: Newest plan of any scenario (what the dispatcher sees). Any role.
+      summary: Effective approved plan; a new draft never replaces it. Any role.
+      parameters:
+        - in: query
+          name: scenarioId
+          schema: { type: string, format: uuid }
+          description: Optional immutable scenario version; selection is shared by its root.
       responses:
         '200':
           description: OK
@@ -448,6 +453,261 @@ paths:
         '200': { $ref: '#/components/responses/RecoveryUpdated' }
         '409': { description: Stale expectedVersion }
         '422': { description: Time reversal, out of horizon or invalid request }
+
+  /scenarios/{id}/version:
+    get:
+      summary: Get current source head for this version root
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceVersion' }
+
+  /scenarios/{id}/versions:
+    get:
+      summary: List immutable versions including the initial source
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SourceVersion' } }
+
+  /scenarios/{id}/source:
+    get:
+      summary: Open this exact immutable D1 source snapshot
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+  /scenarios/{id}/plan-selection:
+    get:
+      summary: Get separate latest draft and effective approved plan
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanSelection' }
+
+  /change-requests/{id}:
+    get:
+      summary: Get request linked to a concrete source version and calculation
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangeReceipt' }
+
+  /change-requests/{id}/history:
+    get:
+      summary: Get append-only request lifecycle, authors and times
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/RequestUpdate' } }
+
+  /change-requests/updates:
+    get:
+      summary: Replay notifications after a durable cursor
+      parameters:
+        - in: query
+          name: after
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RequestUpdates' }
+
+  /change-requests/stream:
+    get:
+      summary: Request status SSE stream; any registered role
+      description: Events are named request-status. Their ID is a durable request_event sequence. Reconnect with Last-Event-ID; keep-alive comments are sent every 15 seconds.
+      parameters:
+        - in: query
+          name: after
+          schema: { type: integer, minimum: 0, default: 0 }
+        - in: header
+          name: Last-Event-ID
+          schema: { type: string, pattern: '^[0-9]+$' }
+      responses:
+        '200':
+          description: SSE stream, reconnect after the five-minute connection timeout
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /change-requests:
+    get:
+      summary: List newest requests and their latest processing status
+      parameters:
+        - in: query
+          name: scenarioId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ChangeReceipt' } }
+    post:
+      summary: Persist request, changed source version and canonical snapshot atomically
+      description: Dispatcher, planner or technologist; CSRF required. Exact actor/key retry returns the same request. A stale head/version or key reused with different content is 409. No service slot is assigned here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangeCommand' }
+      responses:
+        '201':
+          description: Saved, including an exact retry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangeReceipt' }
+
+        '409':
+          description: VERSION_CONFLICT or IDEMPOTENCY_KEY_REUSED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+        '422':
+          description: Invalid identifier, time, overlap or request shape
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+        '403': { description: Role or CSRF check failed }
+
+  /scenarios/{id}/rule-versions:
+    post:
+      summary: Persist request, changed source version and canonical snapshot atomically
+      description: TECHNOLOGIST only; change.kind must be RULE_CHANGE and scenarioId must match the path. Old rules/credits remain historical. A changed mileage grid requires explicit baselines for every train/cycle.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangeCommand' }
+      responses:
+        '201':
+          description: Saved, including an exact retry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangeReceipt' }
+
+        '409':
+          description: VERSION_CONFLICT or IDEMPOTENCY_KEY_REUSED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+        '422':
+          description: Invalid identifier, time, overlap or request shape
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+        '403': { description: Role or CSRF check failed }
+
+  /scenarios/{id}/requests:
+    post:
+      summary: UI_CONTRACT request; dispatcher or planner
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      description: Atomically saves source version, canonical snapshot, request and queued job. Same actor/clientRequestId/body returns 200; stale hash or changed retry is 409. CSRF required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UiNewRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UiChangeRequest' }
+
+        '200':
+          description: Exact retry, same request and job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UiChangeRequest' }
+
+        '409':
+          description: Stale hash or reused clientRequestId
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+        '422':
+          description: Invalid source facts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+        '403': { description: Role or CSRF check failed }
+  /requests:
+    get:
+      summary: UI_CONTRACT trip and urgent maintenance requests; all registered roles
+      parameters:
+        - in: query
+          name: scenarioId
+          schema: { type: string, format: uuid }
+          description: Any source revision of a root; returns all requests for that root
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/UiChangeRequest' } }
+
+  /requests/{id}:
+    get:
+      summary: UI_CONTRACT request detail
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UiChangeRequest' }
+
+  /plans/active:
+    get:
+      summary: Effective human-approved Plan; all registered roles
+      parameters:
+        - in: query
+          name: scenarioId
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Plan' }
+
+        '204': { description: No approved plan }
 
 components:
   responses:
@@ -805,3 +1065,237 @@ components:
             properties:
               field: { type: string }
               reason: { type: string }
+
+    ChangeCommand:
+      type: object
+      required: [scenarioId, expectedVersion, idempotencyKey, reason, source, change]
+      additionalProperties: false
+      properties:
+        scenarioId: { type: string, format: uuid }
+        expectedVersion: { type: integer, minimum: 0 }
+        idempotencyKey: { type: string, minLength: 1, maxLength: 200 }
+        reason: { type: string, minLength: 1, maxLength: 1000 }
+        source: { type: string, minLength: 1, maxLength: 1000 }
+        change:
+          oneOf:
+            - { $ref: '#/components/schemas/TripChange' }
+            - { $ref: '#/components/schemas/TripAdd' }
+            - { $ref: '#/components/schemas/TripCancel' }
+            - { $ref: '#/components/schemas/UrgentMaintenance' }
+            - { $ref: '#/components/schemas/ResourceOutage' }
+            - { $ref: '#/components/schemas/RuleChange' }
+    TripChange:
+      type: object
+      additionalProperties: false
+      required: [kind, trainId, tripId, departureAt, arrivalAt]
+      properties:
+        kind: { type: string, const: TRIP_CHANGE }
+        trainId: { type: string, format: uuid }
+        tripId: { type: string, format: uuid }
+        departureAt: { type: string, format: date-time }
+        arrivalAt: { type: string, format: date-time }
+    TripAdd:
+      type: object
+      additionalProperties: false
+      required: [kind, trainId, tripId, departureAt, arrivalAt, distanceKm, label, origin, destination]
+      properties:
+        kind: { type: string, const: TRIP_ADD }
+        trainId: { type: string, format: uuid }
+        tripId: { type: string, format: uuid, description: New client-generated UUID retained across retries }
+        departureAt: { type: string, format: date-time }
+        arrivalAt: { type: string, format: date-time }
+        distanceKm: { type: integer, minimum: 1 }
+        label: { type: string, minLength: 1 }
+        origin: { type: string, minLength: 1 }
+        destination: { type: string, minLength: 1 }
+    TripCancel:
+      type: object
+      additionalProperties: false
+      required: [kind, trainId, tripId]
+      properties:
+        kind: { type: string, const: TRIP_CANCEL }
+        trainId: { type: string, format: uuid }
+        tripId: { type: string, format: uuid }
+    UrgentMaintenance:
+      type: object
+      additionalProperties: false
+      required: [kind, trainId, problemType, detectedAt, notBeforeCurrentTripEnd, workKind]
+      anyOf:
+        - { required: [deadlineAt] }
+        - { required: [urgency] }
+      properties:
+        kind: { type: string, const: URGENT_MAINTENANCE }
+        trainId: { type: string, format: uuid }
+        problemType: { type: string, minLength: 1 }
+        detectedAt: { type: string, format: date-time }
+        notBeforeCurrentTripEnd: { type: boolean }
+        earliestStartAt: { type: string, format: date-time }
+        deadlineAt: { type: string, format: date-time }
+        urgency: { type: string, enum: [CRITICAL, HIGH, NORMAL, IMMEDIATE, WITHIN_24H, WITHIN_HORIZON] }
+        workKind: { type: string, minLength: 1 }
+    ResourceOutage:
+      type: object
+      additionalProperties: false
+      required: [kind, resourceId, startsAt, endsAt]
+      properties:
+        kind: { type: string, const: RESOURCE_OUTAGE }
+        resourceId: { type: string, minLength: 1 }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+    RuleChange:
+      type: object
+      additionalProperties: false
+      required: [kind, version, confirmationStatus, mileagePolicy, toleranceBasis, rules]
+      properties:
+        kind: { type: string, const: RULE_CHANGE }
+        version: { type: string, minLength: 1, description: Globally unique rule-set version }
+        confirmationStatus: { type: string, enum: [SYNTHETIC, UNCONFIRMED, CONFIRMED] }
+        mileagePolicy: { type: string, enum: [ABSOLUTE_GRID, FROM_LAST_SERVICE, UNCONFIRMED] }
+        toleranceBasis: { type: string, enum: [INTERVAL, NOMINAL_MILESTONE, UNCONFIRMED] }
+        rules:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, intervalKm, toleranceBasisPoints, durationMinutes, rank, resourceIds]
+            properties:
+              code: { type: string, minLength: 1 }
+              intervalKm: { type: integer, minimum: 1 }
+              toleranceBasisPoints: { type: integer, minimum: 0, maximum: 9999 }
+              durationMinutes: { type: integer, minimum: 1 }
+              rank: { type: integer, minimum: 0 }
+              resourceIds: { type: array, minItems: 1, uniqueItems: true, items: { type: string } }
+        baselines:
+          type: array
+          description: Required for every train/cycle if the mileage grid changes; old accepted work is never rewritten
+          items:
+            type: object
+            additionalProperties: false
+            required: [trainId, cycleCode, creditedNominalKm]
+            properties:
+              trainId: { type: string, format: uuid }
+              cycleCode: { type: string }
+              creditedNominalKm: { type: integer, minimum: 0 }
+    SourceVersion:
+      type: object
+      properties:
+        rootId: { type: string, format: uuid }
+        scenarioId: { type: string, format: uuid }
+        version: { type: integer, minimum: 0 }
+        parentScenarioId: { type: string, format: uuid, nullable: true }
+        snapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+    ChangeReceipt:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string }
+        trainId: { type: string, format: uuid, nullable: true }
+        tripId: { type: string, format: uuid, nullable: true }
+        reason: { type: string }
+        source: { type: string }
+        reportedBy: { type: string }
+        reportedAt: { type: string, format: date-time }
+        version: { $ref: '#/components/schemas/SourceVersion' }
+        change: { type: object, additionalProperties: true }
+        status: { $ref: '#/components/schemas/RequestStatus' }
+        jobId: { type: string, format: uuid, nullable: true }
+        planId: { type: string, format: uuid, nullable: true }
+        errorCode: { type: string, nullable: true }
+        errorMessage: { type: string, nullable: true }
+    RequestStatus:
+      type: string
+      enum: [RECEIVED, IN_CALCULATION, CALCULATED, VALIDATED, APPROVED, ERROR]
+    RequestUpdate:
+      type: object
+      properties:
+        sequence: { type: integer, minimum: 1 }
+        requestId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/RequestStatus' }
+        actor: { type: string }
+        jobId: { type: string, format: uuid, nullable: true }
+        planId: { type: string, format: uuid, nullable: true }
+        code: { type: string, nullable: true }
+        message: { type: string, nullable: true }
+        recordedAt: { type: string, format: date-time }
+    RequestUpdates:
+      type: object
+      properties:
+        nextCursor: { type: integer, minimum: 0 }
+        events: { type: array, items: { $ref: '#/components/schemas/RequestUpdate' } }
+    PlanSelection:
+      type: object
+      properties:
+        rootId: { type: string, format: uuid }
+        latestDraftId: { type: string, format: uuid, nullable: true }
+        effectivePlanId: { type: string, format: uuid, nullable: true }
+        effectivePlanUsesCurrentSource: { type: boolean }
+
+    UiNewRequest:
+      type: object
+      required: [clientRequestId, expectedSnapshotHash, payload, comment]
+      properties:
+        clientRequestId: { type: string, minLength: 1, maxLength: 160 }
+        expectedSnapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        payload: { $ref: '#/components/schemas/UiRequestPayload' }
+        comment: { type: string, maxLength: 1000 }
+    UiRequestPayload:
+      oneOf:
+        - { $ref: '#/components/schemas/UiTripChange' }
+        - { $ref: '#/components/schemas/UiUrgentMaintenance' }
+    UiTripChange:
+      type: object
+      additionalProperties: false
+      required: [kind, trainId, tripId, newDepartureAt, newArrivalAt, reason, source]
+      properties:
+        kind: { type: string, const: TRIP_CHANGE }
+        trainId: { type: string, format: uuid }
+        tripId: { type: string, format: uuid }
+        newDepartureAt: { type: string, format: date-time }
+        newArrivalAt: { type: string, format: date-time }
+        reason: { type: string, minLength: 1 }
+        source: { type: string, minLength: 1 }
+    UiUrgentMaintenance:
+      type: object
+      additionalProperties: false
+      required: [kind, trainId, problem, detectedAt, notBeforeTripEnd, urgency, dueBy, workType]
+      properties:
+        kind: { type: string, const: URGENT_MAINTENANCE }
+        trainId: { type: string, format: uuid }
+        problem: { type: string, minLength: 1 }
+        detectedAt: { type: string, format: date-time }
+        notBeforeTripEnd: { type: boolean }
+        urgency: { type: string, enum: [IMMEDIATE, WITHIN_24H, WITHIN_HORIZON] }
+        dueBy: { type: string, format: date-time, nullable: true }
+        workType: { type: string, minLength: 1 }
+    UiChangeRequest:
+      type: object
+      required: [id, number, scenarioId, baseSnapshotHash, status, payload, comment, createdBy, createdAt, newSnapshotHash, jobId, planId, validationStatus, decidedBy, decidedAt, error, newScenarioId, snapshotId, sourceVersion]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer, minimum: 1 }
+        scenarioId: { type: string, format: uuid, description: Stable scenario root for calendars and inbox }
+        baseSnapshotHash: { type: string }
+        status: { type: string, enum: [RECEIVED, APPLIED, CALCULATED, VALIDATED, APPROVED, REJECTED, FAILED] }
+        payload: { $ref: '#/components/schemas/UiRequestPayload' }
+        comment: { type: string }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        newSnapshotHash: { type: string, nullable: true }
+        jobId: { type: string, format: uuid, nullable: true }
+        planId: { type: string, format: uuid, nullable: true }
+        validationStatus: { type: string, enum: [PASS, FAILED, NOT_PERFORMED], nullable: true }
+        decidedBy: { type: string, nullable: true }
+        decidedAt: { type: string, format: date-time, nullable: true }
+        error:
+          type: object
+          nullable: true
+          properties:
+            code: { type: string }
+            message: { type: string }
+        newScenarioId: { type: string, format: uuid, description: Exact new source revision for jobs; do not substitute the root }
+        snapshotId: { type: string, format: uuid }
+        sourceVersion: { type: integer, minimum: 1 }
