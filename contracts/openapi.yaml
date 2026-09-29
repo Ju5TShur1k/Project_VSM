@@ -611,7 +611,7 @@ components:
         warnings: { type: array, items: { type: string } }
     E3Assessment:
       type: object
-      required: [scenarioId, sourceSnapshotId, snapshotHash, provenance, trainCount, tripCount, requiredWorkCount, fixedAssignmentStatus, d2Status, blockers]
+      required: [scenarioId, sourceSnapshotId, snapshotHash, provenance, trainCount, tripCount, requiredWorkCount, eligibleTrainCount, peakConcurrentTrips, unassignedEligibleTrainCount, fixedAssignmentStatus, d2Status, blockers]
       properties:
         scenarioId: { type: string, format: uuid }
         sourceSnapshotId: { type: string, format: uuid }
@@ -620,6 +620,9 @@ components:
         trainCount: { type: integer }
         tripCount: { type: integer }
         requiredWorkCount: { type: integer }
+        eligibleTrainCount: { type: integer, description: "Trains with source status AVAILABLE or IN_SERVICE" }
+        peakConcurrentTrips: { type: integer, description: "Maximum overlapping fixed trip slots" }
+        unassignedEligibleTrainCount: { type: integer, description: "Eligible trains without any fixed source trip" }
         fixedAssignmentStatus:
           type: string
           enum: [BLOCKED_BY_FIXED_ASSIGNMENTS, NECESSARY_WINDOWS_PRESENT]

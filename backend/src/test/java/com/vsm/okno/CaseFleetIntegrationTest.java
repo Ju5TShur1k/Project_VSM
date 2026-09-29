@@ -6,11 +6,13 @@ import com.vsm.okno.data.SourceSnapshotE3Adapter;
 import com.vsm.okno.data.SourceSnapshotRepository;
 import com.vsm.okno.planning.CpSatPlanner;
 import com.vsm.okno.planning.E3FeasibilityAudit;
+import com.vsm.okno.planning.E3TripAssignmentLedger;
 import com.vsm.okno.planning.PlannerRequest;
 import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.planning.OperationalConstraints;
 import com.vsm.okno.planning.ScenarioSnapshot;
 import com.vsm.okno.validation.E3SourcePlanAudit;
+import com.vsm.okno.validation.E3TripAssignmentAudit;
 import com.vsm.okno.validation.IndependentIntervalAudit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -26,7 +28,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -116,6 +120,9 @@ class CaseFleetIntegrationTest {
         assertTrue(assessment.contains("\"snapshotHash\":\"" + saved.snapshotHash() + "\""));
         assertTrue(assessment.contains("\"fixedAssignmentStatus\":\"BLOCKED_BY_FIXED_ASSIGNMENTS\""));
         assertTrue(assessment.contains("\"d2Status\":\"NOT_PERFORMED\""));
+        assertTrue(assessment.contains("\"eligibleTrainCount\":34"));
+        assertTrue(assessment.contains("\"peakConcurrentTrips\":34"));
+        assertTrue(assessment.contains("\"unassignedEligibleTrainCount\":0"));
         var result = new PlannerResult("1.0", source.scenarioId(), source.snapshotHash(),
                 PlannerRequest.Policy.WHOLE_CYCLE_CP_SAT, PlannerResult.SolverStatus.INFEASIBLE,
                 List.of(), List.of(), 1, 0, null);
@@ -143,6 +150,47 @@ class CaseFleetIntegrationTest {
         var e2 = datasets.load(CaseDatasetService.Dataset.E2_6).response();
         mvc.perform(get("/api/v1/source-snapshots/{id}/e3-assessment", e2.source().snapshotId()))
                 .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    @Transactional
+    void fullFleetTripReassignmentPreservesTripIdsAndRejectsUnreleasedDepotTrains() {
+        var loaded = datasets.load(CaseDatasetService.Dataset.FULL43).response();
+        UUID scenario = loaded.source().scenarioId();
+        var saved = snapshots.findById(loaded.source().snapshotId()).orElseThrow();
+        UUID train3 = jdbc.queryForObject("select id from vsm.train where scenario_id=? and external_id='CASE-03'",
+                UUID.class, scenario);
+        UUID train4 = jdbc.queryForObject("select id from vsm.train where scenario_id=? and external_id='CASE-04'",
+                UUID.class, scenario);
+        UUID depotTrain = jdbc.queryForObject("select id from vsm.train where scenario_id=? and external_id='CASE-35'",
+                UUID.class, scenario);
+        var start = java.time.OffsetDateTime.parse("2031-07-01T00:00:00+03:00");
+        var cutoff = start.plusDays(1);
+        var ledger = new E3TripAssignmentLedger();
+        var original = ledger.evaluate(saved, Map.of(), start, 55);
+        assertEquals(1428, original.trips().size());
+        assertEquals(0, original.changedTripCount());
+        List<UUID> three = jdbc.queryForList("select id from vsm.fixed_trip where scenario_id=? and train_id=? "
+                        + "and departure_at>=? order by departure_at", UUID.class,
+                scenario, train3, java.sql.Timestamp.from(cutoff.toInstant()));
+        List<UUID> four = jdbc.queryForList("select id from vsm.fixed_trip where scenario_id=? and train_id=? "
+                        + "and departure_at>=? order by departure_at", UUID.class,
+                scenario, train4, java.sql.Timestamp.from(cutoff.toInstant()));
+        assertEquals(39, three.size());
+        assertEquals(39, four.size());
+        Map<UUID, UUID> exchanged = new HashMap<>();
+        three.forEach(id -> exchanged.put(id, train4));
+        four.forEach(id -> exchanged.put(id, train3));
+        var proposed = ledger.evaluate(saved, exchanged, cutoff, 55);
+        assertEquals(78, proposed.changedTripCount());
+        assertEquals(1428, proposed.trips().size());
+        assertEquals(original.snapshotHash(), proposed.snapshotHash());
+        assertEquals(original.trains().get(train3).finalKm(), proposed.trains().get(train3).finalKm());
+        assertTrue(proposed.trains().get(train4).trips().stream()
+                .anyMatch(t -> t.tripId().equals(three.getFirst())));
+        assertTrue(new E3TripAssignmentAudit().check(saved, proposed, cutoff, 55).isEmpty());
+        assertThrows(IllegalArgumentException.class,
+                () -> ledger.evaluate(saved, Map.of(three.getFirst(), depotTrain), cutoff, 55));
     }
 
     @Test
