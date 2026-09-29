@@ -40,4 +40,11 @@ public final class E3AssessmentController {
             @RequestBody com.vsm.okno.planning.E3MaintenanceCandidateSolver.Input input) {
         return service.solveMaintenanceCandidate(id, input);
     }
+
+    @PostMapping("/{id}/e3-joint-candidate")
+    public com.vsm.okno.planning.E3JointCandidatePlanner.Result planJointCandidate(
+            @PathVariable UUID id,
+            @RequestBody com.vsm.okno.planning.E3JointCandidatePlanner.Input input) {
+        return service.planJointCandidate(id, input);
+    }
 }

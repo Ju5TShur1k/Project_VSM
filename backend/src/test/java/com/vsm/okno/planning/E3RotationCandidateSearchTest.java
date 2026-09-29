@@ -92,6 +92,36 @@ class E3RotationCandidateSearchTest {
         assertEquals(1, blocked.diagnostics().size());
     }
 
+    @Test
+    void jointCandidateAutomaticallySearchesThenRunsMaintenanceOnly() {
+        SourceSnapshot saved = source();
+        Planner witness = (snapshot, request) -> {
+            assertTrue(E3FeasibilityAudit.blockedBlockIds(snapshot).isEmpty());
+            var work = snapshot.blocks().getFirst();
+            return new PlannerResult("1.0", snapshot.scenarioId(), snapshot.snapshotHash(),
+                    request.policy(), PlannerResult.SolverStatus.FEASIBLE,
+                    List.of(new PlannerResult.PlannedBlock(work.id(), work.trainId(),
+                            work.resourceId(), START.plusHours(1), START.plusHours(11))),
+                    List.of(), request.seed(), 1, 660.0);
+        };
+        var result = new E3JointCandidatePlanner(witness).plan(saved,
+                new E3JointCandidatePlanner.Input(START, 55, 2, 8, 1, 5));
+        assertEquals("MAINTENANCE_CANDIDATE_FOUND", result.searchStatus());
+        assertEquals(1, result.moves());
+        assertEquals(2, result.effectiveTrainByTrip().size());
+        assertEquals("FEASIBLE", result.maintenance().maintenanceSolverStatus());
+        assertEquals("NOT_RUN", result.maintenance().fullSolverStatus());
+        assertEquals("NOT_PERFORMED", result.maintenance().d2Status());
+
+        Planner unexpected = (snapshot, request) -> {
+            throw new AssertionError("zero moves must keep the original blocker");
+        };
+        var bounded = new E3JointCandidatePlanner(unexpected).plan(saved,
+                new E3JointCandidatePlanner.Input(START, 55, 0, 8, 1, 5));
+        assertEquals("MOVE_LIMIT_REACHED", bounded.searchStatus());
+        assertEquals("NOT_RUN", bounded.maintenance().maintenanceSolverStatus());
+    }
+
     private static SourceSnapshot source() {
         List<Object> trains = new ArrayList<>(), odometers = new ArrayList<>(), baselines = new ArrayList<>();
         List<Object> presence = new ArrayList<>(), occupancy = new ArrayList<>(), counters = new ArrayList<>();

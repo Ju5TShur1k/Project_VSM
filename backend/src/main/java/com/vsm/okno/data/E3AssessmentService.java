@@ -6,6 +6,7 @@ import com.vsm.okno.planning.E3MileageObligationRecalculator;
 import com.vsm.okno.planning.E3RotationCandidateSearch;
 import com.vsm.okno.planning.E3MaintenanceCandidateSolver;
 import com.vsm.okno.planning.CpSatPlanner;
+import com.vsm.okno.planning.E3JointCandidatePlanner;
 import com.vsm.okno.planning.MileageObligationGenerator;
 import com.vsm.okno.planning.PlannerResult;
 import com.vsm.okno.service.PlanningService;
@@ -154,6 +155,18 @@ public final class E3AssessmentService {
             return new E3MaintenanceCandidateSolver(new CpSatPlanner()).solve(saved, input);
         } catch (IllegalArgumentException error) {
             throw new PlanningService.InvalidRequestException("maintenanceCandidate", error.getMessage());
+        }
+    }
+
+    /** One bounded E3 candidate run; no durable plan or D2 approval is produced. */
+    public E3JointCandidatePlanner.Result planJointCandidate(UUID snapshotId,
+                                                              E3JointCandidatePlanner.Input input) {
+        var saved = snapshots.findById(snapshotId)
+                .orElseThrow(() -> new PlanningService.NotFoundException("snapshot not found: " + snapshotId));
+        try {
+            return new E3JointCandidatePlanner(new CpSatPlanner()).plan(saved, input);
+        } catch (IllegalArgumentException error) {
+            throw new PlanningService.InvalidRequestException("jointCandidate", error.getMessage());
         }
     }
 }

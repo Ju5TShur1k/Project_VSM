@@ -241,6 +241,33 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  /source-snapshots/{id}/e3-joint-candidate:
+    post:
+      summary: Search several verified return rotations and run maintenance CP-SAT
+      description: Bounded exploratory decomposition. It reports a maintenance candidate only; cleaning and release integration, durable plan and independent full D2 remain pending.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/E3JointCandidateInput' }
+      responses:
+        '200':
+          description: Bounded candidate result with explicit maintenance, full solver and D2 status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/E3JointCandidateResult' }
+        '404':
+          description: Snapshot not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: Invalid search parameters or unsupported source facts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   /scenarios/{id}:
     get:
       summary: Get scenario snapshot
@@ -1056,6 +1083,30 @@ components:
         resourceId: { type: string }
         startAt: { type: string, format: date-time }
         endAt: { type: string, format: date-time }
+    E3JointCandidateInput:
+      type: object
+      required: [frozenUntil, preparationMinutes, maxMoves, maxEvaluationsPerMove, seed, timeLimitSec]
+      properties:
+        frozenUntil: { type: string, format: date-time }
+        preparationMinutes: { type: integer, minimum: 0, maximum: 1440 }
+        maxMoves: { type: integer, minimum: 0, maximum: 4 }
+        maxEvaluationsPerMove: { type: integer, minimum: 1, maximum: 32 }
+        seed: { type: integer }
+        timeLimitSec: { type: integer, minimum: 1, maximum: 60 }
+    E3JointCandidateResult:
+      type: object
+      required: [scenarioId, sourceSnapshotId, snapshotHash, searchStatus, lastRotationStatus, moves, effectiveTrainByTrip, maintenance]
+      properties:
+        scenarioId: { type: string, format: uuid }
+        sourceSnapshotId: { type: string, format: uuid }
+        snapshotHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        searchStatus: { type: string, enum: [MAINTENANCE_CANDIDATE_FOUND, MAINTENANCE_SOLVER_INFEASIBLE, MAINTENANCE_SOLVER_UNKNOWN, MAINTENANCE_SOLVER_MODEL_INVALID, MOVE_LIMIT_REACHED, NO_FIXED_WINDOW_BLOCKER, NO_IMPROVING_ROTATION] }
+        lastRotationStatus: { type: string, enum: [NOT_RUN, NO_FIXED_WINDOW_BLOCKER, NO_IMPROVING_ROTATION, IMPROVING_ROTATION_FOUND] }
+        moves: { type: integer }
+        effectiveTrainByTrip:
+          type: object
+          additionalProperties: { type: string, format: uuid }
+        maintenance: { $ref: '#/components/schemas/E3MaintenanceCandidateResult' }
     E3CandidateAssessment:
       type: object
       required: [scenarioId, sourceSnapshotId, snapshotHash, tripCount, changedTripCount, mileageObligationCount, mileageStatus, solverStatus, d2Status, reserve, cleaning, blockers]
